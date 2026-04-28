@@ -71,3 +71,5 @@ npx @gaberagland/remote-control install --reset-token
 ```
 
 The relay keeps thread, pairing, and phone metadata in D1. Inbound iMessage bodies and media URLs are kept only in the relay Durable Object's in-memory buffer until Codex claims them. Codex replies are not stored by the relay; they are forwarded to iMessage when the Stop hook publishes them.
+
+The Worker is configured with Cloudflare Workers Observability disabled and invocation logs off. Do not enable Workers Logs, Trace Events Logpush, Tail Workers, or tracing for production unless the log pipeline is explicitly reviewed to guarantee message bodies, media URLs, and provider error payloads are excluded.

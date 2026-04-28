@@ -29,6 +29,12 @@
       "new_sqlite_classes": ["RemoteThreadSocket"]
     }
   ],
+  "observability": {
+    "enabled": false,
+    "logs": {
+      "invocation_logs": false
+    }
+  },
   "vars": {
     "SENDBLUE_FROM_NUMBER": "+16452468235",
     "SENDBLUE_API_BASE_URL": "https://api.sendblue.com/api",

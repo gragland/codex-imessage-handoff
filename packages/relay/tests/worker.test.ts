@@ -1524,7 +1524,7 @@ test("sendblue media failure does not fail status publish", async () => {
       }),
     }), testEnv);
     assert.equal(status.status, 200);
-    assert.match(String((await notification(status)).error), /Sendblue media API 500/);
+    assert.match(String((await notification(status)).error), /Sendblue media API returned HTTP 500/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1562,7 +1562,7 @@ test("sendblue failure does not fail status publish", async () => {
   }
 });
 
-test("sendblue error body is returned without failing status publish", async () => {
+test("sendblue error body is redacted without failing status publish", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
@@ -1579,7 +1579,7 @@ test("sendblue error body is returned without failing status publish", async () 
     new Response(JSON.stringify({
       status: "ERROR",
       error_code: 10001,
-      error_message: "Message failed to send",
+      error_message: "Message failed to send: Done.",
     }), { status: 200 });
   try {
     const status = await handleRequest(req(`/threads/${threadId}/status`, {
@@ -1593,7 +1593,9 @@ test("sendblue error body is returned without failing status publish", async () 
       }),
     }), testEnv);
     assert.equal(status.status, 200);
-    assert.equal((await notification(status)).status, "ERROR");
+    const result = await notification(status);
+    assert.equal(result.status, "ERROR");
+    assert.equal(result.error, "Sendblue rejected message with status ERROR.");
   } finally {
     globalThis.fetch = originalFetch;
   }

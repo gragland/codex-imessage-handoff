@@ -540,8 +540,8 @@ function eligiblePendingReplies(rows: RemoteReplyRow[]) {
 async function sendControlMessage(env: Env, phoneNumber: string, message: string) {
   try {
     await sendSendblueMessage(env, phoneNumber, message);
-  } catch (caught) {
-    console.warn("Sendblue control message failed", caught);
+  } catch {
+    console.warn("Sendblue control message failed.");
   }
 }
 
@@ -607,7 +607,7 @@ async function readSendblueJson(response: Response) {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new Error(`Sendblue API returned non-JSON response: ${text.slice(0, 200)}`);
+    throw new Error("Sendblue API returned a non-JSON response.");
   }
 }
 
@@ -618,15 +618,12 @@ function assertSendblueAccepted(body: unknown) {
   const normalizedStatus = status?.toUpperCase();
   const messageHandle = optionalString(payload.message_handle) ?? optionalString(wrapper.message_handle);
   const errorCode = payload.error_code ?? wrapper.error_code;
-  const errorMessage = optionalString(payload.error_message)
-    ?? optionalString(wrapper.error_message)
-    ?? optionalString(wrapper.message);
 
   if (normalizedStatus === "ERROR" || normalizedStatus === "DECLINED") {
-    throw new Error(`Sendblue rejected message: ${errorMessage ?? normalizedStatus}`);
+    throw new Error(`Sendblue rejected message with status ${normalizedStatus}.`);
   }
   if (errorCode !== null && errorCode !== undefined && errorCode !== 0 && errorCode !== "0") {
-    throw new Error(`Sendblue rejected message: ${errorMessage ?? `error_code ${String(errorCode)}`}`);
+    throw new Error(`Sendblue rejected message with error_code ${String(errorCode)}.`);
   }
   if (!messageHandle) {
     throw new Error("Sendblue response did not include a message_handle.");
@@ -702,7 +699,7 @@ async function uploadSendblueMedia(env: Env, image: GeneratedImageInput) {
   });
   const body = await readSendblueJson(response);
   if (!response.ok) {
-    throw new Error(`Sendblue media API ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+    throw new Error(`Sendblue media API returned HTTP ${response.status}.`);
   }
   return mediaUrlFromSendblue(body);
 }
@@ -727,7 +724,7 @@ async function sendSendblueMessage(env: Env, number: string, content: string | n
   });
   const body = await readSendblueJson(response);
   if (!response.ok) {
-    throw new Error(`Sendblue API ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+    throw new Error(`Sendblue API returned HTTP ${response.status}.`);
   }
   return assertSendblueAccepted(body);
 }
@@ -746,7 +743,7 @@ async function sendSendblueCarousel(env: Env, number: string, mediaUrls: string[
   });
   const body = await readSendblueJson(response);
   if (!response.ok) {
-    throw new Error(`Sendblue carousel API ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+    throw new Error(`Sendblue carousel API returned HTTP ${response.status}.`);
   }
   return assertSendblueAccepted(body);
 }
@@ -787,13 +784,12 @@ async function sendSendblueTypingIndicator(env: Env, number: string) {
   });
   const body = await readSendblueJson(response);
   if (!response.ok) {
-    throw new Error(`Sendblue typing API ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+    throw new Error(`Sendblue typing API returned HTTP ${response.status}.`);
   }
   const payload = isRecord(body) && isRecord(body.data) ? body.data : body;
   const indicatorStatus = isRecord(payload) ? optionalString(payload.status)?.toUpperCase() : null;
   if (indicatorStatus === "ERROR") {
-    const message = isRecord(payload) ? optionalString(payload.error_message) : null;
-    throw new Error(`Sendblue typing indicator failed: ${message ?? "ERROR"}`);
+    throw new Error("Sendblue typing indicator failed.");
   }
 }
 
@@ -806,7 +802,7 @@ async function lookupSendblueService(env: Env, number: string) {
   });
   const body = await readSendblueJson(response);
   if (!response.ok) {
-    throw new Error(`Sendblue lookup API ${response.status}: ${JSON.stringify(body).slice(0, 500)}`);
+    throw new Error(`Sendblue lookup API returned HTTP ${response.status}.`);
   }
   const payload = isRecord(body) && isRecord(body.data) ? body.data : body;
   const service = isRecord(payload) ? optionalString(payload.service) : null;
@@ -859,13 +855,13 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
           };
         }
       } catch (caught) {
-        const errorMessage = caught instanceof Error ? caught.message : String(caught);
+        const errorMessage = caught instanceof Error ? caught.message : "Sendblue status notification failed.";
         notification = {
           sent: false,
           status: "ERROR",
           error: errorMessage,
         };
-        console.warn("Sendblue status notification failed", caught);
+        console.warn("Sendblue status notification failed.");
         // Remote status publishing should never break the local Stop hook.
       }
     } else {
@@ -921,8 +917,8 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
           await sleep(delayMs);
         }
         await sendSendblueTypingIndicator(env, binding.phone_number);
-      } catch (caught) {
-        console.warn("Sendblue typing indicator failed", caught);
+      } catch {
+        console.warn("Sendblue typing indicator failed.");
       }
     }
     return json(body);
@@ -984,8 +980,8 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
         await sleep(delayMs);
       }
       await sendSendblueTypingIndicator(env, binding.phone_number);
-    } catch (caught) {
-      console.warn("Sendblue typing indicator failed", caught);
+    } catch {
+      console.warn("Sendblue typing indicator failed.");
     }
   }
 
