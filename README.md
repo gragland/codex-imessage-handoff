@@ -3,7 +3,7 @@
 Remote Control lets you continue a local Codex thread from iMessage. It has two parts:
 
 - `packages/skill`: the installable Codex skill and Stop hook scripts.
-- `packages/relay`: a Cloudflare relay that connects Codex, iMessage, and Sendblue.
+- `packages/relay`: a Cloudflare relay that connects Codex with iMessage via [Sendblue](https://www.sendblue.com/).
 
 The hosted relay is the default path. You can also deploy your own Cloudflare relay and point the skill at it.
 
