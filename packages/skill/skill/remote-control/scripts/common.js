@@ -9,6 +9,9 @@ const skillDir = path.resolve(__dirname, "..");
 const stateDir = process.env.REMOTE_CONTROL_STATE_DIR || path.join(skillDir, ".state");
 const configPath = path.join(stateDir, "config.json");
 const activeThreadsPath = path.join(stateDir, "active-threads.json");
+const defaultRelayUrl = process.env.REMOTE_CONTROL_RELAY_URL || "https://remote-control.gabe-ragland.workers.dev";
+const remoteStopHookTimeoutSeconds = 86520;
+const remoteStopHookStatusMessage = "Waiting for remote messages";
 
 // Shared helpers for the local skill scripts. The scripts are plain Node files
 // because they run inside Codex hooks, outside the Cloudflare Worker runtime.
@@ -27,6 +30,13 @@ function writeJson(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = filePath + ".tmp-" + process.pid;
   writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  renameSync(tempPath, filePath);
+}
+
+function writeText(filePath, value) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = filePath + ".tmp-" + process.pid;
+  writeFileSync(tempPath, value, "utf8");
   renameSync(tempPath, filePath);
 }
 
@@ -65,6 +75,109 @@ function readConfig() {
   }
 
   throw new Error("Remote Control config not found. Run `npx @gaberagland/remote-control install` to create " + configPath + ".");
+}
+
+async function ensureLocalInstall() {
+  // This lets skills installed by a generic skill manager finish setup the first
+  // time "start remote" runs. The npm installer still does the same work up
+  // front, but start-remote can now repair missing config/hooks too.
+  const existingConfig = existsSync(configPath) ? readJson(configPath) : null;
+  const apiBaseUrl = String(
+    process.env.REMOTE_CONTROL_API_BASE_URL
+    || process.env.REMOTE_CONTROL_RELAY_URL
+    || existingConfig?.apiBaseUrl
+    || defaultRelayUrl
+  ).replace(/\/+$/, "");
+  const transport = readTransport(existingConfig?.transport, process.env.REMOTE_CONTROL_TRANSPORT);
+  const token = existingConfig && typeof existingConfig.token === "string" && existingConfig.token.trim()
+    ? existingConfig.token.trim()
+    : process.env.REMOTE_CONTROL_TOKEN
+      ? String(process.env.REMOTE_CONTROL_TOKEN).trim()
+      : await createInstallToken(apiBaseUrl);
+
+  writeJson(configPath, {
+    apiBaseUrl,
+    token,
+    stopPollSeconds: readNumber(existingConfig?.stopPollSeconds, process.env.REMOTE_CONTROL_STOP_POLL_SECONDS, 86400),
+    stopPollIntervalSeconds: readNumber(existingConfig?.stopPollIntervalSeconds, process.env.REMOTE_CONTROL_STOP_POLL_INTERVAL_SECONDS, 5),
+    transport,
+  });
+  ensureCodexHooksEnabled(path.join(codexHome(), "config.toml"));
+  installStopHook(path.join(codexHome(), "hooks.json"), skillDir);
+  return readConfig();
+}
+
+async function createInstallToken(apiBaseUrl) {
+  const response = await httpFetch(apiBaseUrl + "/installations", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+  });
+  const body = response.text.trim() ? JSON.parse(response.text) : {};
+  if (response.status < 200 || response.status >= 300 || typeof body.token !== "string" || !body.token.trim()) {
+    throw new Error("Remote Control relay did not return an install token from " + apiBaseUrl + "/installations.");
+  }
+  return body.token.trim();
+}
+
+function ensureCodexHooksEnabled(filePath) {
+  const current = existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
+  let next = current;
+  if (/\[features\][\s\S]*?codex_hooks\s*=/.test(current)) {
+    next = current.replace(/(\[features\][\s\S]*?codex_hooks\s*=\s*)(true|false)/, "$1true");
+  } else if (current.includes("[features]")) {
+    next = current.replace("[features]", "[features]\ncodex_hooks = true");
+  } else {
+    next = current.trimEnd() + (current.trim() ? "\n\n" : "") + "[features]\ncodex_hooks = true\n";
+  }
+  if (next !== current) {
+    writeText(filePath, next);
+  }
+}
+
+function installStopHook(hooksPath, targetSkillDir) {
+  const root = existsSync(hooksPath) ? readJson(hooksPath) : {};
+  const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
+  const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
+  const command = [
+    shellQuote(process.execPath),
+    shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
+  ].join(" ");
+
+  let found = false;
+  for (const group of groups) {
+    if (!group || typeof group !== "object" || !Array.isArray(group.hooks)) {
+      continue;
+    }
+    for (const hook of group.hooks) {
+      if (!hook || typeof hook !== "object") {
+        continue;
+      }
+      if (typeof hook.command === "string" && hook.command.includes("publish-stop.js")) {
+        hook.type = "command";
+        hook.command = command;
+        hook.timeout = remoteStopHookTimeoutSeconds;
+        hook.statusMessage = remoteStopHookStatusMessage;
+        hook.silent = true;
+        found = true;
+      }
+    }
+  }
+
+  if (!found) {
+    groups.push({
+      hooks: [{
+        type: "command",
+        command,
+        timeout: remoteStopHookTimeoutSeconds,
+        statusMessage: remoteStopHookStatusMessage,
+        silent: true,
+      }],
+    });
+  }
+
+  hooks.Stop = groups;
+  root.hooks = hooks;
+  writeJson(hooksPath, root);
 }
 
 function readTransport(configValue, envValue) {
@@ -305,6 +418,7 @@ module.exports = {
   basenameForTitle,
   configPath,
   discoverThreadTitle,
+  ensureLocalInstall,
   ensureStateDirs,
   isUsableThreadTitle,
   readActiveThreads,

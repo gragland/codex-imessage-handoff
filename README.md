@@ -15,6 +15,20 @@ Current GitHub install, for testing before npm publish:
 npx github:gragland/remote-control install
 ```
 
+You can also install the skill with the Skills CLI:
+
+```bash
+npx skills add https://github.com/gragland/remote-control/tree/main/packages/skill/skill/remote-control -g -a codex -y
+```
+
+From a local checkout, useful while the repo is private:
+
+```bash
+npx skills add ./packages/skill/skill/remote-control -g -a codex -y
+```
+
+When installed this way, the first `start remote` run completes setup automatically by creating the local relay config and installing the Codex Stop hook.
+
 After the package is published to npm, the install command will be:
 
 ```bash
@@ -56,7 +70,7 @@ This removes the global Stop hook used for communication with the relay.
 
 ## How It Works
 
-1. The installer asks the relay for a token and stores it locally in `~/.codex/skills/remote-control/.state/config.json`.
+1. The installer asks the relay for a token and stores it locally in the installed skill directory.
 2. `start remote` registers the current `CODEX_THREAD_ID` with the relay.
 3. When you text the pairing code, the relay links that local token to your phone number.
 4. iMessages from your paired phone become pending replies for the active Codex thread.

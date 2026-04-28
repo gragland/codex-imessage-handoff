@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { apiFetch, configPath, discoverThreadTitle, readActiveThreads, readConfig, shellQuote, writeActiveThreads } = require("./common.js");
+const { apiFetch, configPath, discoverThreadTitle, ensureLocalInstall, shellQuote, readActiveThreads, writeActiveThreads } = require("./common.js");
 
 // start-remote is run by the Codex skill when the user wants this thread to be
 // reachable from iMessage. It registers the thread with the relay and records
@@ -33,12 +33,12 @@ function normalizeHandoffSummary(value) {
 }
 
 async function main() {
-  const config = readConfig();
   const codexThreadId = process.env.CODEX_THREAD_ID ? process.env.CODEX_THREAD_ID.trim() : "";
   if (!codexThreadId) {
     console.error("CODEX_THREAD_ID is required. Run start remote from inside a Codex thread.");
     process.exit(2);
   }
+  const config = await ensureLocalInstall();
 
   const cwd = readArg("cwd") || process.cwd();
   const title = discoverThreadTitle(codexThreadId, cwd);

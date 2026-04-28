@@ -10,9 +10,10 @@ const scriptsDir = path.resolve("skill/remote-control/scripts");
 // These tests execute the installed skill scripts the same way Codex hooks do.
 // Most network calls are routed through a mock file so the tests can verify the
 // local state machine without needing a live relay or Sendblue account.
-function scriptEnv(options: { stateDir: string; mockFile?: string; codexThreadId?: string; stateDb?: string; sessionLog?: string; globalState?: string }) {
+function scriptEnv(options: { stateDir: string; mockFile?: string; codexThreadId?: string; stateDb?: string; sessionLog?: string; globalState?: string; codexHome?: string }) {
   return {
     ...process.env,
+    CODEX_HOME: options.codexHome ?? path.join(options.stateDir, "codex-home"),
     CODEX_THREAD_ID: options.codexThreadId ?? "",
     REMOTE_CONTROL_STATE_DIR: options.stateDir,
     REMOTE_CONTROL_TOKEN: "dev-token",
@@ -23,7 +24,7 @@ function scriptEnv(options: { stateDir: string; mockFile?: string; codexThreadId
   };
 }
 
-function runScript(scriptName: string, args: string[], options: { stateDir: string; stdin?: string; mockFile?: string; codexThreadId?: string; stateDb?: string; sessionLog?: string; globalState?: string }) {
+function runScript(scriptName: string, args: string[], options: { stateDir: string; stdin?: string; mockFile?: string; codexThreadId?: string; stateDb?: string; sessionLog?: string; globalState?: string; codexHome?: string }) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(scriptsDir, scriptName), ...args], {
       cwd: path.resolve("."),
@@ -190,6 +191,48 @@ test("start-remote requires CODEX_THREAD_ID", async () => {
   const result = await runScript("start-remote.js", [], { stateDir });
   assert.equal(result.code, 2);
   assert.match(result.stderr, /CODEX_THREAD_ID is required/);
+});
+
+test("start-remote bootstraps config and Stop hook on first invoke", async () => {
+  const mockPath = mockFile({
+    "POST /threads/codex-thread-1": {
+      body: {
+        id: "codex-thread-1",
+        sendblueNumber: "+16452468235",
+        paired: false,
+        pairingRequired: true,
+        pairingCode: "ABC123",
+        skipNextStatusSend: false,
+      },
+    },
+  });
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+
+  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+    stateDir,
+    codexHome,
+    mockFile: mockPath,
+    codexThreadId: "codex-thread-1",
+  });
+  assert.equal(result.code, 0, result.stderr);
+
+  const config = JSON.parse(readFileSync(path.join(stateDir, "config.json"), "utf8"));
+  assert.equal(config.token, "dev-token");
+  assert.equal(config.transport, "websocket");
+  assert.match(config.apiBaseUrl, /^https:\/\/remote-control\.gabe-ragland\.workers\.dev$/);
+
+  const codexConfig = readFileSync(path.join(codexHome, "config.toml"), "utf8");
+  assert.match(codexConfig, /codex_hooks = true/);
+
+  const hooksRoot = JSON.parse(readFileSync(path.join(codexHome, "hooks.json"), "utf8"));
+  const stopHook = hooksRoot.hooks.Stop[0].hooks[0];
+  assert.equal(stopHook.type, "command");
+  assert.match(stopHook.command, /publish-stop\.js/);
+  assert.equal(stopHook.statusMessage, "Waiting for remote messages");
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (645) 246-8235` to continue this thread from iMessage.");
 });
 
 test("start-remote creates thread and writes active registry", async () => {
