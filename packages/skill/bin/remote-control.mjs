@@ -157,6 +157,52 @@ function installStopHook(hooksPath, skillTargetDir) {
   writeJson(hooksPath, root);
 }
 
+function uninstallStopHook(hooksPath) {
+  // Uninstall is intentionally narrow: the user may remove/disable the skill in
+  // Codex, and this command only removes the global Stop hook we added.
+  if (!existsSync(hooksPath)) {
+    return 0;
+  }
+
+  const root = readJson(hooksPath, {});
+  const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
+  const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
+  let removed = 0;
+  const nextGroups = [];
+
+  for (const group of groups) {
+    if (!group || typeof group !== "object" || !Array.isArray(group.hooks)) {
+      nextGroups.push(group);
+      continue;
+    }
+    const nextHooks = group.hooks.filter((hook) => {
+      const shouldRemove = hook
+        && typeof hook === "object"
+        && typeof hook.command === "string"
+        && hook.command.includes("publish-stop.js");
+      if (shouldRemove) {
+        removed += 1;
+      }
+      return !shouldRemove;
+    });
+    if (nextHooks.length > 0) {
+      nextGroups.push({ ...group, hooks: nextHooks });
+    }
+  }
+
+  if (removed > 0) {
+    if (nextGroups.length > 0) {
+      hooks.Stop = nextGroups;
+    } else {
+      delete hooks.Stop;
+    }
+    root.hooks = hooks;
+    writeJson(hooksPath, root);
+  }
+
+  return removed;
+}
+
 async function install() {
   // The installer is intentionally close to the eventual public npm flow. It
   // fetches/reuses a token, copies the skill, writes config, and registers hooks.
@@ -195,13 +241,34 @@ async function install() {
   }, null, 2));
 }
 
+function uninstall() {
+  const codexHome = readArg("codex-home") || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const hooksPath = path.join(codexHome, "hooks.json");
+  const hooksRemoved = uninstallStopHook(hooksPath);
+
+  console.log(JSON.stringify({
+    ok: true,
+    hooksRemoved,
+    hooksPath,
+  }, null, 2));
+}
+
 const command = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "install";
-if (command !== "install") {
-  console.error("Usage: remote-control install [--relay-url=https://...] [--codex-home=/path] [--transport=poll|websocket] [--reset-token]");
+if (command !== "install" && command !== "uninstall") {
+  console.error("Usage: remote-control install [--relay-url=https://...] [--codex-home=/path] [--transport=poll|websocket] [--reset-token]\n       remote-control uninstall [--codex-home=/path]");
   process.exit(2);
 }
 
-install().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (command === "install") {
+  install().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+} else {
+  try {
+    uninstall();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}

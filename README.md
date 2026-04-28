@@ -38,6 +38,22 @@ start remote
 
 If this is your first time, Codex prints a pairing code. Text that code to the phone number shown by Codex. After that, text normal instructions from iMessage.
 
+## Uninstall
+
+First turn off or remove the Remote Control skill in Codex settings. Then run:
+
+```bash
+npx github:gragland/remote-control uninstall
+```
+
+After the package is published to npm, the uninstall command will be:
+
+```bash
+npx @gaberagland/remote-control uninstall
+```
+
+This removes the global Stop hook used for communication with the relay.
+
 ## How It Works
 
 1. The installer asks the relay for a token and stores it locally in `~/.codex/skills/remote-control/.state/config.json`.

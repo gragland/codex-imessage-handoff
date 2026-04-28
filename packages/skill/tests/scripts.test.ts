@@ -44,6 +44,13 @@ function runScript(scriptName: string, args: string[], options: { stateDir: stri
   });
 }
 
+function runCli(args: string[]) {
+  return spawnSync(process.execPath, [path.resolve("bin/remote-control.mjs"), ...args], {
+    cwd: path.resolve("."),
+    encoding: "utf8",
+  });
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -106,6 +113,67 @@ function makeCodexStateDb(rows: Array<{ id: string; title: string }>) {
 function sqlString(value: string) {
   return "'" + value.replace(/'/g, "''") + "'";
 }
+
+test("remote-control uninstall removes only the Remote Control Stop hook", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const hooksPath = path.join(codexHome, "hooks.json");
+  writeFileSync(hooksPath, JSON.stringify({
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            { type: "command", command: "'node' '/tmp/remote-control/scripts/publish-stop.js'", timeout: 1 },
+            { type: "command", command: "echo keep-stop-hook" },
+          ],
+        },
+        {
+          hooks: [
+            { type: "command", command: "echo keep-other-group" },
+          ],
+        },
+      ],
+      Notification: [
+        {
+          hooks: [
+            { type: "command", command: "echo keep-notification-hook" },
+          ],
+        },
+      ],
+    },
+  }));
+
+  const result = runCli(["uninstall", "--codex-home=" + codexHome]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).hooksRemoved, 1);
+
+  const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
+  const stopCommands = hooksRoot.hooks.Stop.flatMap((group: { hooks: Array<{ command: string }> }) => group.hooks.map((hook) => hook.command));
+  assert.deepEqual(stopCommands, ["echo keep-stop-hook", "echo keep-other-group"]);
+  assert.equal(hooksRoot.hooks.Notification[0].hooks[0].command, "echo keep-notification-hook");
+});
+
+test("remote-control uninstall removes empty Stop groups", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const hooksPath = path.join(codexHome, "hooks.json");
+  writeFileSync(hooksPath, JSON.stringify({
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            { type: "command", command: "'node' '/tmp/remote-control/scripts/publish-stop.js'" },
+          ],
+        },
+      ],
+    },
+  }));
+
+  const result = runCli(["uninstall", "--codex-home=" + codexHome]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).hooksRemoved, 1);
+
+  const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
+  assert.equal("Stop" in hooksRoot.hooks, false);
+});
 
 test("publish-stop exits quietly for inactive threads", async () => {
   const stateDir = tempState();
