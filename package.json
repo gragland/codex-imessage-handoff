@@ -1,0 +1,12 @@
+{
+  "name": "remote-control-repo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.26.0",
+  "scripts": {
+    "build": "pnpm --filter @gaberagland/remote-control-relay build",
+    "test": "pnpm --filter @gaberagland/remote-control-relay test && pnpm --filter @gaberagland/remote-control test",
+    "typecheck": "pnpm --filter @gaberagland/remote-control-relay typecheck"
+  }
+}

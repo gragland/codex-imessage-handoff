@@ -1,0 +1,19 @@
+{
+  "name": "@gaberagland/remote-control",
+  "version": "0.1.0",
+  "description": "Install the Remote Control Codex skill for continuing Codex threads from iMessage.",
+  "type": "module",
+  "bin": {
+    "remote-control": "./bin/remote-control.mjs"
+  },
+  "files": [
+    "bin/",
+    "skill/"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

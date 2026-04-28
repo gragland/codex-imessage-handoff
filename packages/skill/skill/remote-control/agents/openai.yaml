@@ -1,0 +1,7 @@
+interface:
+  display_name: "Remote Control"
+  short_description: "Continue a Codex thread from iMessage"
+  icon_small: "./assets/remote-control-small.svg"
+  icon_large: "./assets/remote-control.png"
+  brand_color: "#22C85B"
+  default_prompt: "Start remote continuation for this Codex thread."
