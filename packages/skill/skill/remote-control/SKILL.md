@@ -26,7 +26,7 @@ When starting remote, run the starter script yourself. Do not tell the user to r
 
    Do not present the Codex thread id, CLI commands, hook details, or implementation internals as part of the public/product-facing message.
 
-   A paired phone can have multiple active remote threads. Starting remote for this thread switches iMessage to this thread. The user can text `threads` to the Sendblue number to see numbered active threads, then text a bare number such as `2` to switch.
+   A paired phone can have multiple active remote threads. Starting remote for this thread switches iMessage to this thread. The user can text `threads` to the printed phone number to see numbered active threads, then text a bare number such as `2` to switch.
 
 ## Stop Remote
 
@@ -77,9 +77,9 @@ Then retry activation after the installer creates the token-only config.
 
 ## iMessage Testing
 
-If `start remote` prints a pairing code, text it to the printed Sendblue number once. After the phone is paired, future `start remote` runs should let you text normal instructions directly without another pairing code.
+If `start remote` prints a pairing code, text it to the printed phone number once. After the phone is paired, future `start remote` runs should let you text normal instructions directly without another pairing code.
 
-Text `threads` to the Sendblue number to see all active remote threads for the paired phone. Text a number from that list to switch which thread receives normal remote messages.
+Text `threads` to the printed phone number to see all active remote threads for the paired phone. Text a number from that list to switch which thread receives normal remote messages.
 
 Read the latest published Codex result/status:
 
