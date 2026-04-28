@@ -436,10 +436,9 @@ async function waitForReplyWhileActive(config, codexThreadId) {
     : waitForReplyByPolling(config, codexThreadId);
 }
 
-async function waitForReplyByPolling(config, codexThreadId) {
+async function waitForReplyByPolling(config, codexThreadId, deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000) {
   // Polling fallback: ask the relay repeatedly for a claimable reply while also
   // checking local state so stop-remote/local input can interrupt quickly.
-  const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
   const intervalMs = Math.max(1, config.stopPollIntervalSeconds) * 1000;
   const localFollowUpCheckMs = 250;
 
@@ -482,15 +481,18 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
   const localFollowUpCheckMs = 250;
   const socketWait = startWebSocketWait(config, codexThreadId);
   if (!socketWait) {
-    return null;
+    return waitForReplyByPolling(config, codexThreadId, deadline);
   }
 
   let replyId = null;
+  let socketEndedWithoutReply = false;
   let done = false;
   socketWait.replyId.then(function onReply(value) {
     replyId = value;
+    socketEndedWithoutReply = !value;
     done = true;
   }, function onError() {
+    socketEndedWithoutReply = true;
     done = true;
   });
   await Promise.resolve();
@@ -509,6 +511,9 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
     }
 
     if (!replyId) {
+      if (socketEndedWithoutReply && Date.now() < deadline) {
+        return waitForReplyByPolling(config, codexThreadId, deadline);
+      }
       return null;
     }
     return claimReplyById(config, codexThreadId, replyId);
@@ -631,6 +636,10 @@ try {
 
   const latestActive = readActiveThreads();
   if (!latestActive.threads[codexThreadId]) {
+    process.exit(0);
+  }
+  if (hasQueuedLocalFollowUp(codexThreadId)) {
+    await disableRemoteSilently(config, codexThreadId, latestActive);
     process.exit(0);
   }
   latestActive.threads[codexThreadId] = {

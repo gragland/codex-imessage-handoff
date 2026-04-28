@@ -734,6 +734,62 @@ test("publish-stop defaults to websocket transport and claims by id", async () =
   }]);
 });
 
+test("publish-stop falls back to pending checks when websocket is unavailable", async () => {
+  const mockPath = mockFile({
+    "POST /threads/codex-thread-1/status": { body: { ok: true } },
+    "GET /threads/codex-thread-1/pending": {
+      body: {
+        replies: [{
+          id: "reply_1",
+          body: "Fallback still waits",
+          media: [],
+        }],
+      },
+    },
+    "POST /threads/codex-thread-1/replies/reply_1/claim": {
+      body: { ok: true, reply: { id: "reply_1", body: "Fallback still waits" } },
+    },
+  });
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
+    apiBaseUrl: "https://example.test",
+    token: "dev-token",
+    stopPollSeconds: 5,
+  }));
+  writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
+    threads: {
+      "codex-thread-1": {
+        cwd: "/tmp/project",
+        createdAt: "2026-04-25T18:20:00.000Z",
+        lastStopAt: null,
+      },
+    },
+  }));
+
+  const result = await runScript("publish-stop.js", [], {
+    stateDir,
+    mockFile: mockPath,
+    stdin: JSON.stringify({
+      session_id: "codex-thread-1",
+      cwd: "/tmp/project",
+      last_assistant_message: "Done.",
+    }),
+  });
+  assert.equal(result.code, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.decision, "block");
+  assert.match(output.reason, /Fallback still waits/);
+  const updatedMock = JSON.parse(readFileSync(mockPath, "utf8"));
+  assert.deepEqual(updatedMock.calls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`), [
+    "POST /threads/codex-thread-1/status",
+    "GET /threads/codex-thread-1/pending",
+    "POST /threads/codex-thread-1/replies/reply_1/claim",
+  ]);
+  assert.deepEqual(updatedMock.websocketCalls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`), [
+    "WS /threads/codex-thread-1/events",
+  ]);
+});
+
 test("publish-stop formats multi-line remote replies including blank lines", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
