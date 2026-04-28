@@ -3,6 +3,8 @@ import test from "node:test";
 import { RemoteThreadSocket, handleRequest } from "../src/worker.ts";
 import type { Env, PhoneBindingRow, RemoteReplyRow, RemoteThreadRow } from "../src/types.ts";
 
+// The relay tests run the Worker directly in Node. These fakes keep the tests
+// fast while still exercising the same request handlers that Wrangler serves.
 async function ownerIdForToken(token: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`remote-control:${token}`));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -39,6 +41,9 @@ class FakeStatement {
 }
 
 class FakeD1Database {
+  // This is a tiny in-memory stand-in for the specific D1 queries the Worker
+  // issues. When a production query changes, this fake usually needs the same
+  // behavior added so tests continue to mirror the deployed relay.
   threads = new Map<string, RemoteThreadRow>();
   replies = new Map<string, RemoteReplyRow>();
   phoneBindings = new Map<string, PhoneBindingRow>();

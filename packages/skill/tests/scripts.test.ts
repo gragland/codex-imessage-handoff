@@ -7,6 +7,9 @@ import test from "node:test";
 
 const scriptsDir = path.resolve("skill/remote-control/scripts");
 
+// These tests execute the installed skill scripts the same way Codex hooks do.
+// Most network calls are routed through a mock file so the tests can verify the
+// local state machine without needing a live relay or Sendblue account.
 function scriptEnv(options: { stateDir: string; mockFile?: string; codexThreadId?: string; stateDb?: string; sessionLog?: string; globalState?: string }) {
   return {
     ...process.env,
@@ -46,6 +49,8 @@ function wait(ms: number) {
 }
 
 function tempState() {
+  // Each test gets its own Remote Control state directory. That keeps the
+  // install/start/stop files isolated and makes failures easier to reason about.
   const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "http://127.0.0.1:9",
@@ -55,6 +60,9 @@ function tempState() {
 }
 
 function mockFile(responses: Record<string, unknown>) {
+  // The scripts know how to read this file instead of making real HTTP calls.
+  // They append every request they would have sent, which lets assertions check
+  // both the response handling and the outbound payload.
   const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-mock-")), "mock.json");
   writeFileSync(filePath, JSON.stringify({ responses, calls: [] }));
   return filePath;

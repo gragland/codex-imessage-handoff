@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillSourceDir = path.join(packageDir, "skill", "remote-control");
 const defaultRelayUrl = process.env.REMOTE_CONTROL_RELAY_URL || "https://remote-control.gabe-ragland.workers.dev";
+// Codex Stop hooks need a long timeout because they intentionally wait for the
+// user's next remote iMessage after each assistant turn.
 const remoteStopHookTimeoutSeconds = 86520;
 const remoteStopHookStatusMessage = "Waiting for remote messages";
 
@@ -61,6 +63,8 @@ function normalizeTransport(value) {
 }
 
 async function createInstallToken(apiBaseUrl) {
+  // The relay gives each install a bearer token. That token becomes the local
+  // identity later linked to the user's phone during pairing.
   const response = await fetch(`${apiBaseUrl}/installations`, { method: "POST" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.token !== "string" || !body.token.trim()) {
@@ -70,6 +74,8 @@ async function createInstallToken(apiBaseUrl) {
 }
 
 function ensureCodexHooksEnabled(configPath) {
+  // Remote Control depends on Codex's Stop hook feature. Preserve the rest of
+  // config.toml and only turn this feature flag on.
   const current = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   let next = current;
   if (/\[features\][\s\S]*?codex_hooks\s*=/.test(current)) {
@@ -85,6 +91,8 @@ function ensureCodexHooksEnabled(configPath) {
 }
 
 function installSkill(skillTargetDir, codexHome) {
+  // Reinstall the packaged skill files, but keep .state so upgrades do not
+  // accidentally lose the user's token, active thread list, or transport choice.
   mkdirSync(path.dirname(skillTargetDir), { recursive: true });
   const statePath = path.join(skillTargetDir, ".state");
   const preservedStatePath = path.join(codexHome, `.remote-control-state-${process.pid}`);
@@ -102,6 +110,8 @@ function installSkill(skillTargetDir, codexHome) {
 }
 
 function installStopHook(hooksPath, skillTargetDir) {
+  // Add or update one global Stop hook. It runs after every assistant response
+  // and is what lets an iMessage reply continue the same local Codex thread.
   const root = readJson(hooksPath, {});
   const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
   const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
@@ -148,6 +158,8 @@ function installStopHook(hooksPath, skillTargetDir) {
 }
 
 async function install() {
+  // The installer is intentionally close to the eventual public npm flow. It
+  // fetches/reuses a token, copies the skill, writes config, and registers hooks.
   const apiBaseUrl = normalizeRelayUrl(readArg("relay-url") || defaultRelayUrl);
   const codexHome = readArg("codex-home") || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const skillTargetDir = path.join(codexHome, "skills", "remote-control");

@@ -1,5 +1,10 @@
 import type { Env, PhoneBindingRow, RemoteReplyRow, RemoteThreadRow } from "./types.ts";
 
+// The relay is intentionally small: one Worker file handles registration,
+// Sendblue webhooks, local Codex polling/WebSockets, and outbound Sendblue sends.
+// Durable storage is only for routing metadata; message content is kept in the
+// Durable Object buffer and scrubbed when local Codex claims it.
+
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "access-control-allow-origin": "*",
@@ -10,6 +15,8 @@ const IMESSAGE_REQUIRED_MESSAGE = "Remote Control only supports phone numbers th
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
 const NO_REMOTE_THREADS_MESSAGE = "You have no remote codex threads";
 const SWITCH_RANGE_MESSAGE = "Text threads to see active remote threads.";
+// Sendblue can deliver one image as several webhooks. Wait briefly before
+// surfacing grouped media so Codex receives one complete remote message.
 const MEDIA_GROUP_QUIET_MS = 3000;
 
 interface RegisterBody {
@@ -50,6 +57,8 @@ interface ReplyMedia {
 
 export class RemoteThreadSocket {
   private readonly state: DurableObjectState;
+  // This is the in-memory message buffer. When REMOTE_THREAD_SOCKET is bound,
+  // inbound message text/media does not go to D1; it lives here until claim.
   private readonly replies = new Map<string, RemoteReplyRow>();
 
   constructor(state: DurableObjectState) {
@@ -60,6 +69,8 @@ export class RemoteThreadSocket {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
 
+    // Internal HTTP routes are used by the Worker to insert, list, and claim
+    // messages from the same buffer that WebSocket clients listen to.
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       if (request.method === "GET" && parts[0] === "threads" && parts[1] && parts[2] === "pending" && parts.length === 3) {
         return json({ replies: eligiblePendingReplies(this.pendingRows(parts[1])).slice(0, 10) });
@@ -87,14 +98,20 @@ export class RemoteThreadSocket {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const threadId = parts[1] ?? "";
+    // Tag sockets by thread id so a single global DO can still notify only the
+    // local Codex process that is waiting for that specific thread.
     this.state.acceptWebSocket(server, threadId ? [threadId] : undefined);
     if (threadId) {
+      // A Stop hook may connect after a message already arrived, so send the
+      // next queued message immediately when possible.
       this.notifySocketOrScheduleNextPending(threadId, server);
     }
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    // The local script sends a small "connected" message. The ack is mostly for
+    // diagnostics; actual delivery is driven by reply-pending events.
     const text = typeof message === "string"
       ? message
       : new TextDecoder().decode(message);
@@ -133,6 +150,8 @@ export class RemoteThreadSocket {
   }
 
   private async handleInsertReply(request: Request, threadId: string) {
+    // The Worker calls this after routing a Sendblue webhook to the active
+    // thread. "applied" rows are dedupe tombstones for control messages.
     const body = await readJsonBody<{
       body?: unknown;
       externalId?: unknown;
@@ -159,8 +178,10 @@ export class RemoteThreadSocket {
       applied_at: isTombstone ? createdAt : null,
     });
     if (!isTombstone && !mediaGroupId) {
+      // Plain text can be delivered as soon as it arrives.
       this.notifyNextPending(threadId);
     } else if (!isTombstone) {
+      // Media groups need the quiet window before they are safe to claim.
       this.scheduleMediaPendingNotification(threadId);
     }
     return json({ id });
@@ -180,6 +201,8 @@ export class RemoteThreadSocket {
       socket.send(JSON.stringify(payload));
       return;
     }
+    // If only an unready media group is waiting, schedule a later notification
+    // so a client that connects during the quiet window still gets woken up.
     this.scheduleMediaPendingNotification(threadId);
   }
 
@@ -231,6 +254,8 @@ export class RemoteThreadSocket {
   }
 
   private handleClaimReply(threadId: string, replyId: string) {
+    // Claim is the handoff point from relay memory to local Codex. After this,
+    // the stored body/media are scrubbed so conversation content is not retained.
     const selectedReply = this.replies.get(replyId);
     if (!selectedReply || selectedReply.thread_id !== threadId || selectedReply.status !== "pending") {
       return json({ ok: false, error: "Reply is not pending." }, { status: 409 });
@@ -320,12 +345,16 @@ function bytesToHex(bytes: Uint8Array) {
 }
 
 function makeInstallToken() {
+  // Install tokens are local identity: whoever has this token can control the
+  // associated phone binding, so it should stay in the local skill state dir.
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return `rc_${bytesToHex(bytes)}`;
 }
 
 async function ownerIdFromToken(token: string) {
+  // The relay stores only a deterministic hash-derived owner id, not the raw
+  // local token. That keeps D1 useful for routing without storing bearer tokens.
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`remote-control:${token}`));
   return bytesToHex(new Uint8Array(digest));
 }
@@ -383,6 +412,8 @@ function publicThread(thread: RemoteThreadRow, pendingReplies: Array<Pick<Remote
 }
 
 async function handleRegister(request: Request, env: Env, threadId: string) {
+  // start-remote registers the current Codex thread. If the phone is already
+  // paired, this also switches that phone's active thread to the new one.
   const body = await readJsonBody<RegisterBody>(request);
   const ownerId = await requireOwnerId(request);
   const cwd = requireString(body.cwd, "cwd");
@@ -460,6 +491,8 @@ async function findPairingThread(env: Env, pairingCode: string) {
 }
 
 async function findExternalReply(env: Env, externalId: string) {
+  // Sendblue may retry webhooks. Store/check only external ids for dedupe; the
+  // actual message content can still be kept out of D1 when the DO is enabled.
   if (env.REMOTE_THREAD_SOCKET) {
     const response = await env.REMOTE_THREAD_SOCKET
       .get(env.REMOTE_THREAD_SOCKET.idFromName("global"))
@@ -501,6 +534,8 @@ function quotedThreadDisplayName(thread: RemoteThreadRow) {
 }
 
 function remoteActivationMessage(thread: RemoteThreadRow) {
+  // This is sent to iMessage when a paired user starts or switches a thread.
+  // Keep it short because it appears as a normal chat message.
   const connectionLine = thread.title?.trim()
     ? `You’re connected to ${quotedThreadDisplayName(thread)} on Codex.`
     : "You’re connected to this Codex thread.";
@@ -558,6 +593,8 @@ function replyMediaJson(mediaUrl: string | null) {
 }
 
 function sendblueMediaGroup(externalId: string | null, mediaUrl: string | null) {
+  // Sendblue image batches usually share a message handle prefix with a numeric
+  // suffix. Treat that prefix as the group id so Codex sees one combined prompt.
   if (!externalId || !mediaUrl) {
     return { mediaGroupId: null, mediaIndex: null };
   }
@@ -569,6 +606,8 @@ function sendblueMediaGroup(externalId: string | null, mediaUrl: string | null) 
 }
 
 function combineReplyRows(rows: RemoteReplyRow[]) {
+  // A "reply" shown to Codex can be one text row or a media group. Combine rows
+  // into the smallest prompt-shaped object the local Stop hook needs.
   const ordered = [...rows].sort((a, b) => (
     (a.media_index ?? 0) - (b.media_index ?? 0)
     || a.created_at.localeCompare(b.created_at)
@@ -586,6 +625,8 @@ function combineReplyRows(rows: RemoteReplyRow[]) {
 }
 
 function eligiblePendingReplies(rows: RemoteReplyRow[]) {
+  // Text is eligible immediately. Media groups become eligible only after no
+  // newer image has arrived for MEDIA_GROUP_QUIET_MS.
   const groups = new Map<string, RemoteReplyRow[]>();
   const eligible: Array<ReturnType<typeof combineReplyRows>> = [];
   const cutoff = Date.now() - MEDIA_GROUP_QUIET_MS;
@@ -611,6 +652,8 @@ function eligiblePendingReplies(rows: RemoteReplyRow[]) {
 }
 
 async function sendControlMessage(env: Env, phoneNumber: string, message: string) {
+  // Control messages are best effort. They make the UX nicer, but failure should
+  // not prevent pairing, switching, or stopping from completing.
   try {
     await sendSendblueMessage(env, phoneNumber, message);
   } catch {
@@ -673,6 +716,8 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 async function readSendblueJson(response: Response) {
+  // Do not include provider response bodies in thrown errors. Some providers
+  // echo request content in error payloads, which would risk logging messages.
   const text = await response.text();
   if (!text.trim()) {
     return {};
@@ -721,6 +766,8 @@ function mediaUrlFromSendblue(body: unknown) {
 }
 
 function formatForSendblue(content: string) {
+  // Codex replies can contain Markdown. Convert the common cases to plain text
+  // so iMessage receives something readable.
   return content
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1: $2")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
@@ -730,6 +777,8 @@ function formatForSendblue(content: string) {
 }
 
 function parseGeneratedImages(value: unknown) {
+  // The local Stop hook sends generated images as base64. Cap the list so a
+  // malformed local payload cannot create unbounded upload work.
   if (!Array.isArray(value)) {
     return [];
   }
@@ -827,6 +876,8 @@ async function sendStatusNotification(
   lastAssistantMessage: string | null,
   images: GeneratedImageInput[],
 ) {
+  // A Stop hook status can be text, generated images, or both. Sendblue uses a
+  // normal message for one image and a carousel endpoint for multiple images.
   const formattedText = lastAssistantMessage ? formatForSendblue(lastAssistantMessage) : null;
   const mediaUrls = [];
   for (const image of images) {
@@ -895,6 +946,8 @@ async function lookupPairingService(env: Env, phoneNumber: string) {
 }
 
 async function handleStatus(request: Request, env: Env, threadId: string) {
+  // Called by the Stop hook after Codex finishes a local turn. It updates thread
+  // status and forwards the final assistant reply back to iMessage if paired.
   const body = await readJsonBody<StatusBody>(request);
   const ownerId = await requireOwnerId(request);
   const thread = assertAuthorized(await findThread(env, threadId), ownerId);
@@ -949,6 +1002,8 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
 }
 
 async function handlePending(request: Request, env: Env, threadId: string) {
+  // Polling transport: local Codex asks whether the DO buffer has a claimable
+  // reply. The D1 path remains only as a fallback for older/self-hosted configs.
   const ownerId = await requireOwnerId(request);
   assertAuthorized(await findThread(env, threadId), ownerId);
   if (env.REMOTE_THREAD_SOCKET) {
@@ -970,6 +1025,8 @@ async function handlePending(request: Request, env: Env, threadId: string) {
 }
 
 async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
+  // Claim returns exactly one remote prompt to local Codex and marks it applied.
+  // The typing indicator is sent after claim to make the iMessage side feel live.
   const ownerId = await requireOwnerId(request);
   assertAuthorized(await findThread(env, threadId), ownerId);
   if (env.REMOTE_THREAD_SOCKET) {
@@ -1072,6 +1129,8 @@ async function insertRemoteReply(
   status: "pending" | "applied" = "pending",
   mediaUrl: string | null = null,
 ) {
+  // The normal path writes inbound content to the global DO. The D1 insert path
+  // is retained as a fallback, but launch config should use the DO binding.
   if (env.REMOTE_THREAD_SOCKET) {
     const response = await env.REMOTE_THREAD_SOCKET
       .get(env.REMOTE_THREAD_SOCKET.idFromName("global"))
@@ -1104,6 +1163,8 @@ async function insertRemoteReply(
 }
 
 async function handleSendblueWebhook(request: Request, env: Env) {
+  // Sendblue calls this for inbound and outbound events. We only care about
+  // inbound RECEIVED messages from a phone number, and we require a shared secret.
   const expectedSecret = env.SENDBLUE_WEBHOOK_SECRET?.trim();
   if (!expectedSecret) {
     return error(500, "Sendblue webhook secret is not configured.");
@@ -1129,6 +1190,8 @@ async function handleSendblueWebhook(request: Request, env: Env) {
 
   const pairingThread = content ? await findPairingThread(env, content.toUpperCase()) : null;
   if (pairingThread) {
+    // First-time setup: user texts the pairing code, linking this phone number
+    // to the owner id derived from the local install token.
     const now = nowIso();
     const service = await lookupPairingService(env, fromNumber);
     if (service === "SMS") {
@@ -1170,6 +1233,7 @@ async function handleSendblueWebhook(request: Request, env: Env) {
 
   const command = content?.trim().toLowerCase() ?? "";
   if (!mediaUrl && THREAD_LIST_COMMANDS.has(command)) {
+    // "threads" is an iMessage-side command, not a prompt for Codex.
     const threads = await listEnabledThreadsForOwner(env, binding.owner_id);
     await sendControlMessage(env, fromNumber, formatThreadList(threads, binding.active_thread_id));
     if (externalId && binding.active_thread_id) {
@@ -1180,6 +1244,7 @@ async function handleSendblueWebhook(request: Request, env: Env) {
 
   const selection = content ? parseThreadSelection(content) : null;
   if (!mediaUrl && content && selection !== null) {
+    // A bare number selects from the most recent enabled thread list.
     const threads = await listEnabledThreadsForOwner(env, binding.owner_id);
     const selected = threads[selection - 1];
     if (!selected) {
@@ -1215,6 +1280,7 @@ async function handleSendblueWebhook(request: Request, env: Env) {
 }
 
 async function handleGetThread(request: Request, env: Env, threadId: string) {
+  // Debug/read endpoint for local development and smoke tests.
   const ownerId = await requireOwnerId(request);
   const thread = assertAuthorized(await findThread(env, threadId), ownerId);
   const { results } = await env.DB.prepare(
@@ -1227,6 +1293,8 @@ async function handleGetThread(request: Request, env: Env, threadId: string) {
 }
 
 async function handleStopThread(request: Request, env: Env, threadId: string) {
+  // stop-remote disables the current thread and, if possible, moves the paired
+  // phone to the next most recently active thread.
   const ownerId = await requireOwnerId(request);
   const thread = assertAuthorized(await findThread(env, threadId), ownerId);
   const stoppedAt = nowIso();
@@ -1254,6 +1322,8 @@ async function handleStopThread(request: Request, env: Env, threadId: string) {
 }
 
 async function handleThreadEvents(request: Request, env: Env, threadId: string) {
+  // WebSocket transport: authenticate in the Worker, then hand the upgraded
+  // connection to the single global DO that owns the in-memory buffer.
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return error(426, "WebSocket upgrade required.");
   }
@@ -1272,6 +1342,7 @@ async function handleThreadEvents(request: Request, env: Env, threadId: string) 
 }
 
 export async function handleRequest(request: Request, env: Env) {
+  // Thin router. Keeping routes explicit makes the public surface easy to audit.
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: JSON_HEADERS });
   }

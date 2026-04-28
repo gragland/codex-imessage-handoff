@@ -7,6 +7,8 @@
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
   ],
+  // D1 stores routing and pairing metadata only. Message bodies and media URLs
+  // should stay out of D1 so conversation content is not persisted by the relay.
   "d1_databases": [
     {
       "binding": "DB",
@@ -15,6 +17,8 @@
       "migrations_dir": "./src/db/migrations"
     }
   ],
+  // One global Durable Object holds pending inbound messages in memory and
+  // pushes them to connected Codex clients over WebSocket.
   "durable_objects": {
     "bindings": [
       {
@@ -29,6 +33,8 @@
       "new_sqlite_classes": ["RemoteThreadSocket"]
     }
   ],
+  // Keep Cloudflare-side log persistence disabled for this app. This supports
+  // the product promise that relay logs should not retain user message details.
   "logpush": false,
   "tail_consumers": [],
   "streaming_tail_consumers": [],

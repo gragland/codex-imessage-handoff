@@ -10,6 +10,11 @@ const LOCAL_ONLY_START = "**Remote message**";
 const WS_CONNECTING = 0;
 const WS_OPEN = 1;
 
+// publish-stop is the global Codex Stop hook. After each assistant response it:
+// 1. publishes the assistant result to Sendblue,
+// 2. waits for a remote iMessage reply, and
+// 3. blocks the next Codex turn with that reply as if the user typed it locally.
+
 async function readStdinJson() {
   return new Promise(function readStdin(resolve, reject) {
     const chunks = [];
@@ -29,6 +34,8 @@ async function readStdinJson() {
 }
 
 function sanitizeAssistantMessage(value) {
+  // Codex's previous response may include the local-only display block from a
+  // remote prompt. Strip that before sending the assistant answer back to iMessage.
   if (typeof value !== "string") {
     return null;
   }
@@ -124,6 +131,8 @@ async function downloadBinary(url) {
 }
 
 async function downloadReplyMedia(codexThreadId, reply) {
+  // The relay passes media URLs. The local hook downloads them into skill state
+  // so Codex can inspect local files instead of remote URLs.
   const media = Array.isArray(reply.media) ? reply.media : [];
   if (media.length === 0) {
     return [];
@@ -157,6 +166,7 @@ function sleep(ms) {
 }
 
 function threadEventsUrl(config, codexThreadId) {
+  // The relay URL is HTTP(S), but the events endpoint is WebSocket.
   const url = new URL(config.apiBaseUrl);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.pathname = `/threads/${encodeURIComponent(codexThreadId)}/events`;
@@ -166,6 +176,8 @@ function threadEventsUrl(config, codexThreadId) {
 }
 
 function readMockWebSocketEvent(config, codexThreadId, payload) {
+  // Unit tests simulate WebSocket events through the same mock file used for
+  // HTTP calls. Production never enters this branch.
   if (!process.env.REMOTE_CONTROL_MOCK_FILE) {
     return undefined;
   }
@@ -187,6 +199,8 @@ function readMockWebSocketEvent(config, codexThreadId, payload) {
 }
 
 function startWebSocketWait(config, codexThreadId) {
+  // WebSocket mode waits for the Durable Object to say a reply is pending, then
+  // claims that reply through the normal HTTP claim endpoint.
   const payload = {
     type: "stop-hook-connected",
     threadId: codexThreadId,
@@ -259,6 +273,8 @@ function globalStatePath() {
 }
 
 function hasQueuedLocalFollowUp(codexThreadId) {
+  // If the user typed locally while the Stop hook was waiting remotely, local
+  // input should take over and remote control should stop for this thread.
   try {
     const raw = readFileSync(globalStatePath(), "utf8");
     const state = JSON.parse(raw);
@@ -271,6 +287,8 @@ function hasQueuedLocalFollowUp(codexThreadId) {
 }
 
 function findSessionLog(codexThreadId, thread) {
+  // Generated images are recorded in Codex session logs. Find the current log so
+  // the hook can forward newly generated images to iMessage.
   if (process.env.REMOTE_CONTROL_SESSION_LOG) {
     return process.env.REMOTE_CONTROL_SESSION_LOG;
   }
@@ -330,6 +348,8 @@ function readSessionRows(sessionLogPath) {
 }
 
 function readGeneratedImages(codexThreadId, thread) {
+  // Scan only images created after the last successful stop publish. Each image
+  // event id is tracked so retries do not resend already delivered images.
   const sessionLogPath = findSessionLog(codexThreadId, thread);
   if (!sessionLogPath || !existsSync(sessionLogPath)) {
     return { sessionLogPath: null, images: [] };
@@ -371,6 +391,8 @@ function readGeneratedImages(codexThreadId, thread) {
 }
 
 async function claimReplyById(config, codexThreadId, replyId) {
+  // Claiming is the moment the relay hands a remote prompt to local Codex and
+  // scrubs it from the relay buffer.
   const encodedThreadId = encodeURIComponent(codexThreadId);
   const claimed = await apiFetch(
     config,
@@ -407,12 +429,16 @@ async function disableRemoteSilently(config, codexThreadId, active) {
 }
 
 async function waitForReplyWhileActive(config, codexThreadId) {
+  // The transport switch is local-only. Both modes still claim from the same
+  // relay Durable Object buffer.
   return config.transport === "websocket"
     ? waitForReplyByWebSocket(config, codexThreadId)
     : waitForReplyByPolling(config, codexThreadId);
 }
 
 async function waitForReplyByPolling(config, codexThreadId) {
+  // Polling fallback: ask the relay repeatedly for a claimable reply while also
+  // checking local state so stop-remote/local input can interrupt quickly.
   const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
   const intervalMs = Math.max(1, config.stopPollIntervalSeconds) * 1000;
   const localFollowUpCheckMs = 250;
@@ -450,6 +476,8 @@ async function waitForReplyByPolling(config, codexThreadId) {
 }
 
 async function waitForReplyByWebSocket(config, codexThreadId) {
+  // Default transport: keep a socket open during the Stop hook wait. A
+  // reply-pending event wakes the hook without repeated HTTP polling.
   const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
   const localFollowUpCheckMs = 250;
   const socketWait = startWebSocketWait(config, codexThreadId);
@@ -490,6 +518,8 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
 }
 
 async function prepareReplyForContinuation(codexThreadId, reply) {
+  // Best effort: text prompts should continue even if an attachment download
+  // fails, and the continuation prompt should tell Codex about the failure.
   try {
     return {
       ...reply,
@@ -517,6 +547,9 @@ function attachmentLines(paths) {
 }
 
 function continuationForReply(reply) {
+  // This text becomes the next local Codex user message. The visible block gives
+  // the local thread context, while the "User message to answer" section is the
+  // actual remote prompt Codex should respond to.
   const body = String(reply.body || "");
   const lines = body ? body.split(/\r?\n/) : [];
   const visibleRemoteMessageLines = lines
@@ -549,6 +582,8 @@ function continuationForReply(reply) {
 
 async function main() {
 try {
+  // Codex passes Stop hook context through stdin. If this is not an active remote
+  // thread, exit silently so normal Codex usage is unaffected.
   const input = await readStdinJson();
   const codexThreadId = input.session_id;
   const cwd = input.cwd || process.cwd();
@@ -613,6 +648,8 @@ try {
 
   const reply = await waitForReplyWhileActive(config, codexThreadId);
   if (reply) {
+    // "block" tells Codex to immediately continue with this synthetic user
+    // message instead of ending the turn.
     const preparedReply = await prepareReplyForContinuation(codexThreadId, reply);
     console.log(JSON.stringify({
       decision: "block",

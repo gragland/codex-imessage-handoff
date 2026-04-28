@@ -1,4 +1,5 @@
 export interface Env {
+  // Cloudflare bindings and env vars available to the Worker at runtime.
   DB: D1Database;
   REMOTE_THREAD_SOCKET?: DurableObjectNamespace;
   SENDBLUE_API_KEY?: string;
@@ -11,7 +12,11 @@ export interface Env {
 
 export type RemoteReplyStatus = "pending" | "applied";
 
+// D1 table row shapes. These are intentionally close to the SQL schema so the
+// relay code makes it obvious which fields are durable metadata.
+
 export interface RemoteThreadRow {
+  // One local Codex thread that may be controlled from iMessage.
   id: string;
   owner_id: string;
   cwd: string;
@@ -26,6 +31,8 @@ export interface RemoteThreadRow {
 }
 
 export interface RemoteReplyRow {
+  // Pending/applied inbound reply metadata. With the DO buffer enabled, bodies
+  // and media live in memory and are scrubbed on claim.
   id: string;
   thread_id: string;
   external_id: string | null;
@@ -39,6 +46,8 @@ export interface RemoteReplyRow {
 }
 
 export interface PhoneBindingRow {
+  // Links one iMessage phone number to one local install owner. active_thread_id
+  // controls which Codex thread receives normal inbound texts.
   phone_number: string;
   owner_id: string;
   active_thread_id: string | null;

@@ -10,6 +10,9 @@ const stateDir = process.env.REMOTE_CONTROL_STATE_DIR || path.join(skillDir, ".s
 const configPath = path.join(stateDir, "config.json");
 const activeThreadsPath = path.join(stateDir, "active-threads.json");
 
+// Shared helpers for the local skill scripts. The scripts are plain Node files
+// because they run inside Codex hooks, outside the Cloudflare Worker runtime.
+
 function ensureStateDirs() {
   mkdirSync(stateDir, { recursive: true });
 }
@@ -19,6 +22,8 @@ function readJson(filePath) {
 }
 
 function writeJson(filePath, value) {
+  // Atomic-ish writes keep hook state from being corrupted if a process exits
+  // while updating config or active-threads.json.
   mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = filePath + ".tmp-" + process.pid;
   writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", "utf8");
@@ -26,6 +31,8 @@ function writeJson(filePath, value) {
 }
 
 function readConfig() {
+  // Prefer installer-written config. Env vars are a convenience for tests and
+  // local smoke runs where writing config first would be annoying.
   ensureStateDirs();
   if (existsSync(configPath)) {
     const config = readJson(configPath);
@@ -61,6 +68,8 @@ function readConfig() {
 }
 
 function readTransport(configValue, envValue) {
+  // WebSocket is the normal path. Polling remains available as a simple fallback
+  // if a network or runtime environment cannot keep a socket open.
   const raw = String(envValue !== undefined && envValue !== null && envValue !== "" ? envValue : configValue || "websocket")
     .trim()
     .toLowerCase();
@@ -80,6 +89,8 @@ function readNumber(configValue, envValue, fallback) {
 }
 
 async function apiFetch(config, pathName, init) {
+  // All local-to-relay calls go through this helper so auth and test mocking are
+  // consistent across start, stop, and publish-stop.
   const options = init || {};
   if (process.env.REMOTE_CONTROL_MOCK_FILE) {
     return mockApiFetch(config, pathName, options);
@@ -116,6 +127,8 @@ async function apiFetch(config, pathName, init) {
 }
 
 function httpFetch(requestUrl, options) {
+  // Node 20 has fetch, but keep a tiny http/https fallback for older hook
+  // runtimes and easier debugging.
   if (typeof fetch === "function") {
     return fetch(requestUrl, {
       method: options.method,
@@ -162,6 +175,8 @@ function httpFetch(requestUrl, options) {
 }
 
 function mockApiFetch(config, pathName, init) {
+  // Tests use a JSON mock file instead of standing up the whole relay.
+  // Recording calls here lets tests assert the local script behavior precisely.
   const mockPath = process.env.REMOTE_CONTROL_MOCK_FILE;
   const mock = existsSync(mockPath) ? readJson(mockPath) : {};
   const method = String(init.method || "GET").toUpperCase();
@@ -187,6 +202,8 @@ function mockApiFetch(config, pathName, init) {
 }
 
 function readActiveThreads() {
+  // Active threads are local state: they tell the Stop hook which Codex threads
+  // should keep waiting for remote iMessages.
   ensureStateDirs();
   if (!existsSync(activeThreadsPath)) {
     return { threads: {} };
@@ -243,6 +260,8 @@ function codexStateDbPath() {
 }
 
 function readCodexSidebarTitle(codexThreadId) {
+  // Codex keeps sidebar titles in a local SQLite DB. Reading them makes the
+  // iMessage thread list more recognizable than showing raw thread ids.
   const stateDbPath = codexStateDbPath();
   if (!codexThreadId || !existsSync(stateDbPath)) {
     return "";
@@ -271,6 +290,8 @@ function readCodexSidebarTitle(codexThreadId) {
 }
 
 function discoverThreadTitle(codexThreadId, cwd) {
+  // Title discovery can grow later. For now the sidebar DB is the only reliable
+  // source we use; cwd is kept in the signature for callers and future fallback.
   const sidebarTitle = readCodexSidebarTitle(codexThreadId);
   if (sidebarTitle) {
     return sidebarTitle;
