@@ -82,8 +82,8 @@ Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token 
 npx github:gragland/remote-control install --reset-token
 ```
 
-Remote Control is designed to store the minimum data needed to route messages. The relay avoids persisting conversation content, avoids logging message details, and stores only routing metadata such as thread state, pairing state, phone bindings, and delivery dedupe ids.
+Remote Control is designed to store the minimum data needed to route messages. The relay avoids persisting conversation content, avoids logging message details, and stores only routing metadata such as thread state, pairing state, and phone bindings.
 
-User message content is only held transiently in memory while waiting for local Codex to claim it, then it is scrubbed. Codex replies and generated images are forwarded directly to Sendblue and are not stored by the relay. Aside from this transient relay processing, the only persistent third-party system that stores iMessage content is the message provider, Sendblue.
+User message content is held only briefly while waiting for local Codex to claim it, then it is scrubbed. Codex replies and generated images are forwarded to Sendblue, our iMessage sending provider, and are not stored by the relay. Aside from this transient relay processing, Sendblue is the only system intended to persist iMessage content.
 
 Cloudflare persisted logging is disabled for the `remote-control` relay. Do not enable Cloudflare logs, log exports, live log tailing, or tracing in production unless the full pipeline is reviewed to make sure message content cannot be captured.
