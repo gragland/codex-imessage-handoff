@@ -13,13 +13,10 @@ The hosted relay is the default path. You can also deploy your own relay with Wr
 npx @gaberagland/remote-control install
 ```
 
-Until the package is published, install from a local checkout:
+Until the package is published, install from GitHub:
 
 ```bash
-git clone https://github.com/gragland/remote-control.git
-cd remote-control
-pnpm install
-node packages/skill/bin/remote-control.mjs install
+npx github:gragland/remote-control install
 ```
 
 Then open a Codex thread and invoke Remote Control, or say:

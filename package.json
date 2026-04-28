@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "remote-control": "./packages/skill/bin/remote-control.mjs"
+  },
   "packageManager": "pnpm@10.26.0",
   "scripts": {
     "build": "pnpm --filter @gaberagland/remote-control-relay build",
