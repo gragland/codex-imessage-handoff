@@ -19,10 +19,8 @@ When starting remote, run the starter script yourself. Do not tell the user to r
    - Do not mention remote control, iMessage, Sendblue, hooks, pairing, implementation details, or the act of enabling remote.
    - Keep it plain text and very short, ideally under 140 characters.
    - If there is not enough useful context, use no summary.
-2. Use the first existing starter script path from this list:
-   - `~/.codex/skills/remote-control/scripts/start-remote.js`
-   - `~/.agents/skills/remote-control/scripts/start-remote.js`
-3. Run `node SCRIPT_PATH --handoff-summary="SUMMARY"` when you have a useful summary, or `node SCRIPT_PATH` when you do not. The first run creates local config and installs the Codex Stop hook if needed.
+2. Run the bundled `scripts/start-remote.js` from this skill's installed directory with `--handoff-summary="SUMMARY"` when you have a useful summary, or with no arguments when you do not. The first run creates local config and installs the Codex Stop hook if needed.
+3. Use Node to run the script, for example `node scripts/start-remote.js` after resolving `scripts/start-remote.js` relative to this `SKILL.md`.
 4. If that fails with a sandbox or network error such as `fetch failed`, retry with approval using the same command. Do not request escalation before trying the normal command first.
 5. Read the JSON output.
 6. Respond with `localMessage` exactly and nothing else. Do not include debug details unless the user explicitly asks for them.
@@ -35,11 +33,8 @@ When starting remote, run the starter script yourself. Do not tell the user to r
 
 When the user says "stop remote":
 
-1. Use the first existing stopper script path from this list:
-   - `~/.codex/skills/remote-control/scripts/stop-remote.js`
-   - `~/.agents/skills/remote-control/scripts/stop-remote.js`
-2. Run `node SCRIPT_PATH`.
-3. Tell the user:
+1. Run the bundled `scripts/stop-remote.js` from this skill's installed directory with Node, resolving the script path relative to this `SKILL.md`.
+2. Tell the user:
 
    ```text
    Remote control is stopped.
