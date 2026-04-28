@@ -82,8 +82,8 @@ Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token 
 npx github:gragland/remote-control install --reset-token
 ```
 
-Remote Control's relay never persists user message content. Aside from transient in-memory processing inside the Worker/Durable Object, the only persistent third-party system that stores iMessage content is the message provider, Sendblue.
+Remote Control is designed to store the minimum data needed to route messages. The relay avoids persisting conversation content, avoids logging message details, and keeps durable storage limited to routing metadata such as thread state, pairing state, phone bindings, and delivery dedupe ids.
 
-The relay keeps content-free routing metadata in D1, such as thread records, pairing state, phone bindings, and external message ids for retry dedupe. Inbound iMessage bodies and media URLs live only in the relay Durable Object's in-memory buffer until Codex claims them, then they are scrubbed. Outbound Codex replies and generated image bytes are forwarded directly to Sendblue and are not stored by the relay.
+User message content is only held transiently in memory while waiting for local Codex to claim it, then it is scrubbed. Codex replies and generated images are forwarded directly to Sendblue and are not stored by the relay. Aside from this transient relay processing, the only persistent third-party system that stores iMessage content is the message provider, Sendblue.
 
-The Cloudflare Worker config disables persisted logging for this app only: Workers Observability is off, invocation logs are off, Workers Trace Events Logpush is off, Tail Worker consumers are empty, Streaming Tail Worker consumers are empty, and trace persistence is off in `packages/relay/wrangler.jsonc` for the `remote-control` Worker. Do not enable Workers Logs, Trace Events Logpush, Tail Workers, Streaming Tail Workers, or tracing for production unless the full log pipeline is reviewed to guarantee message bodies, media URLs, generated image bytes, and provider error payloads are excluded.
+Cloudflare persisted logging is disabled for the `remote-control` Worker in `packages/relay/wrangler.jsonc`. Do not enable Worker logs, log exports, Tail Workers, or tracing in production unless the full pipeline is reviewed to make sure message content cannot be captured.

@@ -101,9 +101,9 @@ Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook U
 
 All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pairs by texting the code, the relay links that token to their phone number.
 
-Thread metadata, phone bindings, and pairing state live in D1. Inbound iMessage bodies and media URLs live only in the relay Durable Object's in-memory buffer while pending, then are scrubbed when local Codex claims them. Outbound Codex replies are forwarded to Sendblue and are not stored by the relay.
+The relay stores the minimum data needed to route messages. Durable storage is limited to routing metadata such as thread state, pairing state, phone bindings, and delivery dedupe ids. Message content is held only in the Durable Object's in-memory buffer while pending, then scrubbed when local Codex claims it. Outbound Codex replies are forwarded to Sendblue and are not stored by the relay.
 
-Cloudflare persisted logging is disabled in this app's `wrangler.jsonc`: Workers Observability is off, invocation logs are off, Workers Trace Events Logpush is off, Tail Worker consumers are empty, Streaming Tail Worker consumers are empty, and trace persistence is off for the `remote-control` Worker. Keep Workers Logs, Workers Trace Events Logpush, Tail Workers, Streaming Tail Workers, and tracing off in production unless the full log pipeline is reviewed first. Message bodies are never placed in URLs, and relay warnings intentionally avoid logging Sendblue response payloads because provider error payloads could echo message content.
+Cloudflare persisted logging is disabled for this Worker in `wrangler.jsonc`. Keep Worker logs, log exports, Tail Workers, and tracing off in production unless the full pipeline is reviewed first. Message bodies are never placed in URLs, and relay warnings intentionally avoid logging Sendblue response payloads because provider error payloads could echo message content.
 
 ## Development
 
