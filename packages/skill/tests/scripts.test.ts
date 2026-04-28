@@ -376,15 +376,7 @@ test("publish-stop exits quietly after status when no remote reply is pending", 
     "POST /threads/codex-thread-1/status",
     "GET /threads/codex-thread-1/pending",
   ]);
-  assert.deepEqual(mock.websocketCalls.map((call: { method: string; path: string; body: { type: string } }) => ({
-    method: call.method,
-    path: call.path,
-    type: call.body.type,
-  })), [{
-    method: "WS",
-    path: "/threads/codex-thread-1/events",
-    type: "stop-hook-connected",
-  }]);
+  assert.deepEqual(mock.websocketCalls ?? [], []);
   const active = JSON.parse(readFileSync(path.join(stateDir, "active-threads.json"), "utf8"));
   assert.equal(active.threads["codex-thread-1"].lastStopAt !== null, true);
 });
@@ -560,6 +552,64 @@ test("publish-stop claims a remote reply and emits a block decision", async () =
     "POST /threads/codex-thread-1/replies/reply_1/claim",
   ]);
   assert.equal(mock.calls[2].body, null);
+});
+
+test("publish-stop websocket transport waits for a DO event and claims by id", async () => {
+  const mockPath = mockFile({
+    "POST /threads/codex-thread-1/status": { body: { ok: true } },
+    "POST /threads/codex-thread-1/replies/reply_1/claim": {
+      body: { ok: true, reply: { id: "reply_1", body: "Use websocket mode" } },
+    },
+  });
+  const mock = JSON.parse(readFileSync(mockPath, "utf8"));
+  mock.websocketEvents = {
+    "/threads/codex-thread-1/events": [{ type: "reply-pending", replyId: "reply_1" }],
+  };
+  writeFileSync(mockPath, JSON.stringify(mock));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
+    apiBaseUrl: "https://example.test",
+    token: "dev-token",
+    stopPollSeconds: 0,
+    transport: "websocket",
+  }));
+  writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
+    threads: {
+      "codex-thread-1": {
+        cwd: "/tmp/project",
+        createdAt: "2026-04-25T18:20:00.000Z",
+        lastStopAt: null,
+      },
+    },
+  }));
+
+  const result = await runScript("publish-stop.js", [], {
+    stateDir,
+    mockFile: mockPath,
+    stdin: JSON.stringify({
+      session_id: "codex-thread-1",
+      cwd: "/tmp/project",
+      last_assistant_message: "Done.",
+    }),
+  });
+  assert.equal(result.code, 0);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.decision, "block");
+  assert.match(output.reason, /Use websocket mode/);
+  const updatedMock = JSON.parse(readFileSync(mockPath, "utf8"));
+  assert.deepEqual(updatedMock.calls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`), [
+    "POST /threads/codex-thread-1/status",
+    "POST /threads/codex-thread-1/replies/reply_1/claim",
+  ]);
+  assert.deepEqual(updatedMock.websocketCalls.map((call: { method: string; path: string; body: { type: string } }) => ({
+    method: call.method,
+    path: call.path,
+    type: call.body.type,
+  })), [{
+    method: "WS",
+    path: "/threads/codex-thread-1/events",
+    type: "stop-hook-connected",
+  }]);
 });
 
 test("publish-stop formats multi-line remote replies including blank lines", async () => {

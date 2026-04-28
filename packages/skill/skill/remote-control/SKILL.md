@@ -43,12 +43,12 @@ Do not include debug details unless the user asks for them. The running Stop hoo
 
 ## Stop Hook Behavior
 
-The global Stop hook publishes status, then long-polls the remote inbox for the active remote thread.
+The global Stop hook publishes status, then waits for the active remote thread using the configured local transport, either polling or WebSocket.
 
 - If no reply arrives before the Stop hook timeout, Codex stays idle quietly.
 - If a reply arrives, the Stop hook claims exactly one reply and continues the thread with that reply.
 - Treat continued remote messages exactly as if the user typed them directly into this chat.
-- Do not mention remote control, queued replies, claimed replies, Stop hooks, polling, or message receipt in the assistant response.
+- Do not mention remote control, queued replies, claimed replies, Stop hooks, polling, WebSockets, or message receipt in the assistant response.
 - When done, stop normally. The global Stop hook publishes the result and waits for the next reply.
 - If the user continues locally in the same Codex thread, the Stop hook disables remote control silently so the local message can run normally.
 

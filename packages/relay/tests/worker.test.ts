@@ -307,6 +307,9 @@ function env() {
 function attachRelayBuffer(testEnv: Env) {
   const relay = new RemoteThreadSocket({
     acceptWebSocket() {},
+    getWebSockets() {
+      return [];
+    },
   } as unknown as DurableObjectState);
   testEnv.REMOTE_THREAD_SOCKET = {
     idFromName(name: string) {
@@ -465,6 +468,34 @@ test("rejects unauthorized thread websocket upgrades", async () => {
   }), testEnv);
 
   assert.equal(response.status, 401);
+});
+
+test("relay buffer notifies connected thread websockets when replies arrive", async () => {
+  const sent: string[] = [];
+  const relay = new RemoteThreadSocket({
+    acceptWebSocket() {},
+    getWebSockets(tag?: string) {
+      assert.equal(tag, "thread-test-1");
+      return [{
+        send(message: string) {
+          sent.push(message);
+        },
+      }];
+    },
+  } as unknown as DurableObjectState);
+
+  const response = await relay.fetch(new Request("https://remote-control.internal/threads/thread-test-1/replies", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "hello", externalId: "msg_notify", status: "pending" }),
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(sent.length, 1);
+  const message = JSON.parse(sent[0] ?? "{}");
+  assert.equal(message.type, "reply-pending");
+  assert.equal(message.threadId, "thread-test-1");
+  assert.match(message.replyId, /^reply_/);
 });
 
 test("pairs a phone by code without enqueueing a pending reply", async () => {

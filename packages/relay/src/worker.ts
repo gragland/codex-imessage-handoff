@@ -86,7 +86,17 @@ export class RemoteThreadSocket {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    this.state.acceptWebSocket(server);
+    const threadId = parts[1] ?? "";
+    this.state.acceptWebSocket(server, threadId ? [threadId] : undefined);
+    const pending = threadId ? eligiblePendingReplies(this.pendingRows(threadId))[0] : null;
+    if (pending) {
+      server.send(JSON.stringify({
+        type: "reply-pending",
+        threadId,
+        replyId: pending.id,
+        createdAt: pending.createdAt,
+      }));
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -154,7 +164,36 @@ export class RemoteThreadSocket {
       created_at: createdAt,
       applied_at: isTombstone ? createdAt : null,
     });
+    if (!isTombstone && !mediaGroupId) {
+      this.notifyNextPending(threadId);
+    } else if (!isTombstone) {
+      setTimeout(() => this.notifyNextPending(threadId), MEDIA_GROUP_QUIET_MS);
+    }
     return json({ id });
+  }
+
+  private notifyNextPending(threadId: string) {
+    const pending = eligiblePendingReplies(this.pendingRows(threadId))[0];
+    if (!pending) {
+      return;
+    }
+    this.notifyThread(threadId, {
+      type: "reply-pending",
+      threadId,
+      replyId: pending.id,
+      createdAt: pending.createdAt,
+    });
+  }
+
+  private notifyThread(threadId: string, payload: JsonRecord) {
+    const message = JSON.stringify(payload);
+    for (const socket of this.state.getWebSockets(threadId)) {
+      try {
+        socket.send(message);
+      } catch {
+        // The runtime will clean up dead sockets.
+      }
+    }
   }
 
   private handleClaimReply(threadId: string, replyId: string) {

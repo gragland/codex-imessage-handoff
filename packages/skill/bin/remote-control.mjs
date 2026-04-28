@@ -49,6 +49,17 @@ function normalizeRelayUrl(value) {
   return String(value || "").replace(/\/+$/, "");
 }
 
+function normalizeTransport(value) {
+  const raw = String(value || "poll").trim().toLowerCase();
+  if (raw === "websocket" || raw === "ws") {
+    return "websocket";
+  }
+  if (raw === "poll" || raw === "polling") {
+    return "poll";
+  }
+  throw new Error("--transport must be poll or websocket.");
+}
+
 async function createInstallToken(apiBaseUrl) {
   const response = await fetch(`${apiBaseUrl}/installations`, { method: "POST" });
   const body = await response.json().catch(() => ({}));
@@ -144,6 +155,7 @@ async function install() {
   const hooksPath = path.join(codexHome, "hooks.json");
   const codexConfigPath = path.join(codexHome, "config.toml");
   const existingConfig = readJson(configPath, null);
+  const transport = normalizeTransport(readArg("transport") || process.env.REMOTE_CONTROL_TRANSPORT || existingConfig?.transport);
   const canReuseToken = existingConfig
     && existingConfig.apiBaseUrl === apiBaseUrl
     && typeof existingConfig.token === "string"
@@ -157,12 +169,14 @@ async function install() {
     token,
     stopPollSeconds: Number(existingConfig?.stopPollSeconds) || 86400,
     stopPollIntervalSeconds: Number(existingConfig?.stopPollIntervalSeconds) || 5,
+    transport,
   });
   installStopHook(hooksPath, skillTargetDir);
 
   console.log(JSON.stringify({
     ok: true,
     apiBaseUrl,
+    transport,
     tokenCreated: !canReuseToken,
     skillPath: skillTargetDir,
     hooksPath,
@@ -171,7 +185,7 @@ async function install() {
 
 const command = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "install";
 if (command !== "install") {
-  console.error("Usage: remote-control install [--relay-url=https://...] [--codex-home=/path] [--reset-token]");
+  console.error("Usage: remote-control install [--relay-url=https://...] [--codex-home=/path] [--transport=poll|websocket] [--reset-token]");
   process.exit(2);
 }
 

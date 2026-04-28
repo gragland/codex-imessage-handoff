@@ -36,7 +36,7 @@ If this is your first time, Codex prints a pairing code. Text that code to the p
 2. `start remote` registers the current `CODEX_THREAD_ID` with the relay.
 3. When you text the pairing code, the relay links that local token to your phone number.
 4. iMessages from your paired phone become pending replies for the active Codex thread.
-5. The local Stop hook long-polls the relay, claims a reply, and continues the original Codex thread.
+5. The local Stop hook waits via the configured transport, either polling or WebSocket, claims a reply from the relay Durable Object, and continues the original Codex thread.
 6. Codex results are sent back to iMessage.
 
 ## Commands
@@ -47,6 +47,8 @@ Local Codex:
 start remote
 stop remote
 ```
+
+The local transport defaults to polling. To try WebSocket delivery, run the installer with `--transport=websocket` or set `REMOTE_CONTROL_TRANSPORT=websocket`; use `poll` to switch back.
 
 iMessage:
 

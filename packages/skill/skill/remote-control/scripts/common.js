@@ -37,6 +37,7 @@ function readConfig() {
       token: String(config.token),
       stopPollSeconds: readNumber(config.stopPollSeconds, process.env.REMOTE_CONTROL_STOP_POLL_SECONDS, 86400),
       stopPollIntervalSeconds: readNumber(config.stopPollIntervalSeconds, process.env.REMOTE_CONTROL_STOP_POLL_INTERVAL_SECONDS, 5),
+      transport: readTransport(config.transport, process.env.REMOTE_CONTROL_TRANSPORT),
     };
   }
 
@@ -52,10 +53,21 @@ function readConfig() {
       token: config.token,
       stopPollSeconds: readNumber(undefined, process.env.REMOTE_CONTROL_STOP_POLL_SECONDS, 86400),
       stopPollIntervalSeconds: readNumber(undefined, process.env.REMOTE_CONTROL_STOP_POLL_INTERVAL_SECONDS, 5),
+      transport: readTransport(undefined, process.env.REMOTE_CONTROL_TRANSPORT),
     };
   }
 
   throw new Error("Remote Control config not found. Run `npx @gaberagland/remote-control install` to create " + configPath + ".");
+}
+
+function readTransport(configValue, envValue) {
+  const raw = String(envValue !== undefined && envValue !== null && envValue !== "" ? envValue : configValue || "poll")
+    .trim()
+    .toLowerCase();
+  if (raw === "websocket" || raw === "ws") {
+    return "websocket";
+  }
+  return "poll";
 }
 
 function readNumber(configValue, envValue, fallback) {

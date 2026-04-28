@@ -1,6 +1,6 @@
 # WebSocket Durable Object Research
 
-Research note for replacing or augmenting the current polling-based remote reply delivery path.
+Research note for replacing or augmenting the polling-based remote reply delivery path.
 
 ## Summary
 
@@ -12,16 +12,16 @@ Recommended direction: keep D1 for non-conversation routing metadata such as thr
 
 ## Current Experiment
 
-The relay includes a minimal WebSocket probe at `GET /threads/:threadId/events`.
+The relay includes a WebSocket delivery endpoint at `GET /threads/:threadId/events`.
 
 - The endpoint authenticates the thread, then proxies the WebSocket upgrade to a single global `RemoteThreadSocket` Durable Object.
-- The local Stop hook opens this socket when it starts waiting for remote input.
-- The Stop hook sends a `stop-hook-connected` probe message.
-- The Durable Object replies with an `ack` message confirming receipt.
-- The Stop hook ignores the ack for delivery and keeps polling as the source of truth.
+- The local Stop hook opens this socket when it starts waiting for remote input if `transport` is set to `websocket`.
+- The Stop hook sends a `stop-hook-connected` message.
+- The Durable Object replies with an `ack` message confirming receipt and sends `reply-pending` when a reply is already buffered or newly inserted.
+- The Stop hook claims the reply over the existing HTTP claim endpoint, so both polling and WebSocket delivery consume the same Durable Object buffer.
 - The Stop hook closes the socket when that Stop hook exits; it does not keep a daemon connection open across assistant turns.
 
-This validates connection setup, upgrade routing, and per-stop teardown without changing Sendblue delivery.
+Polling remains available with `transport: "poll"` and uses the same Durable Object buffer through `GET /threads/:threadId/pending`.
 
 ## Current Path
 
@@ -29,8 +29,8 @@ Today, inbound delivery is intentionally short-lived:
 
 1. Sendblue posts to `POST /webhooks/sendblue`.
 2. The Worker authenticates the webhook, finds the active thread from D1 metadata, and inserts pending reply content into the Durable Object buffer.
-3. The local Stop hook publishes status, then polls `GET /threads/:threadId/pending`.
-4. When a reply appears, the Stop hook claims it with `POST /threads/:threadId/replies/:replyId/claim`.
+3. The local Stop hook publishes status, then either polls `GET /threads/:threadId/pending` or waits on `GET /threads/:threadId/events`.
+4. When a reply appears, or when the Durable Object sends a `reply-pending` event, the Stop hook claims it with `POST /threads/:threadId/replies/:replyId/claim`.
 5. The Worker returns the content and immediately scrubs body/media from the Durable Object buffer.
 
 This means inbound prompt content is retained only in memory until Codex fetches it. D1 keeps routing metadata, not message bodies/media URLs.

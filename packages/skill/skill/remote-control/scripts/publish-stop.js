@@ -165,54 +165,84 @@ function threadEventsUrl(config, codexThreadId) {
   return url.toString();
 }
 
-function recordMockWebSocketProbe(config, codexThreadId, payload) {
+function readMockWebSocketEvent(config, codexThreadId, payload) {
   if (!process.env.REMOTE_CONTROL_MOCK_FILE) {
-    return false;
+    return undefined;
   }
 
   const mockPath = process.env.REMOTE_CONTROL_MOCK_FILE;
   const mock = existsSync(mockPath) ? JSON.parse(readFileSync(mockPath, "utf8")) : {};
+  const pathName = `/threads/${codexThreadId}/events`;
   mock.websocketCalls = Array.isArray(mock.websocketCalls) ? mock.websocketCalls : [];
   mock.websocketCalls.push({
     method: "WS",
-    path: `/threads/${codexThreadId}/events`,
+    path: pathName,
     authorization: "Bearer " + config.token,
     body: payload,
   });
+  const events = mock.websocketEvents && mock.websocketEvents[pathName];
+  const event = Array.isArray(events) ? events.shift() : events;
   writeFileSync(mockPath, JSON.stringify(mock, null, 2) + "\n", "utf8");
-  return true;
+  return event || null;
 }
 
-function startWebSocketProbe(config, codexThreadId) {
+function startWebSocketWait(config, codexThreadId) {
   const payload = {
     type: "stop-hook-connected",
     threadId: codexThreadId,
     sentAt: new Date().toISOString(),
   };
 
-  if (recordMockWebSocketProbe(config, codexThreadId, payload)) {
-    return { close: function closeMockProbe() {} };
+  const mockEvent = readMockWebSocketEvent(config, codexThreadId, payload);
+  if (mockEvent !== undefined) {
+    return {
+      replyId: Promise.resolve(mockEvent && mockEvent.replyId ? String(mockEvent.replyId) : null),
+      close: function closeMockSocket() {},
+    };
   }
   if (typeof WebSocket !== "function") {
     return null;
   }
 
   try {
+    let settled = false;
+    let resolveReplyId;
     const socket = new WebSocket(threadEventsUrl(config, codexThreadId));
+    const replyId = new Promise(function waitForReply(resolve) {
+      resolveReplyId = resolve;
+    });
+    function resolveOnce(value) {
+      if (!settled) {
+        settled = true;
+        resolveReplyId(value);
+      }
+    }
     socket.addEventListener("open", function onOpen() {
       socket.send(JSON.stringify(payload));
     });
-    socket.addEventListener("message", function onMessage() {
-      // Probe-only path: receipt is useful for platform validation, not delivery.
+    socket.addEventListener("message", function onMessage(event) {
+      try {
+        const message = JSON.parse(String(event.data || "{}"));
+        if (message && message.type === "reply-pending" && message.replyId) {
+          resolveOnce(String(message.replyId));
+        }
+      } catch {
+        // Ignore malformed socket messages.
+      }
     });
     socket.addEventListener("error", function onError() {
-      // Polling remains authoritative, so socket failures stay silent.
+      resolveOnce(null);
+    });
+    socket.addEventListener("close", function onClose() {
+      resolveOnce(null);
     });
     return {
+      replyId,
       close: function closeProbe() {
         if (socket.readyState === WS_CONNECTING || socket.readyState === WS_OPEN) {
           socket.close(1000, "stop hook finished");
         }
+        resolveOnce(null);
       },
     };
   } catch {
@@ -340,6 +370,17 @@ function readGeneratedImages(codexThreadId, thread) {
   return { sessionLogPath, images };
 }
 
+async function claimReplyById(config, codexThreadId, replyId) {
+  const encodedThreadId = encodeURIComponent(codexThreadId);
+  const claimed = await apiFetch(
+    config,
+    `/threads/${encodedThreadId}/replies/${encodeURIComponent(replyId)}/claim`,
+    { method: "POST" },
+  );
+
+  return claimed.ok && claimed.reply ? claimed.reply : null;
+}
+
 async function claimNextReply(config, codexThreadId) {
   const encodedThreadId = encodeURIComponent(codexThreadId);
   const pending = await apiFetch(config, `/threads/${encodedThreadId}/pending`);
@@ -348,13 +389,7 @@ async function claimNextReply(config, codexThreadId) {
     return null;
   }
 
-  const claimed = await apiFetch(
-    config,
-    `/threads/${encodedThreadId}/replies/${encodeURIComponent(reply.id)}/claim`,
-    { method: "POST" },
-  );
-
-  return claimed.ok && claimed.reply ? claimed.reply : null;
+  return claimReplyById(config, codexThreadId, reply.id);
 }
 
 async function stopRemoteThread(config, codexThreadId) {
@@ -372,13 +407,68 @@ async function disableRemoteSilently(config, codexThreadId, active) {
 }
 
 async function waitForReplyWhileActive(config, codexThreadId) {
+  return config.transport === "websocket"
+    ? waitForReplyByWebSocket(config, codexThreadId)
+    : waitForReplyByPolling(config, codexThreadId);
+}
+
+async function waitForReplyByPolling(config, codexThreadId) {
   const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
   const intervalMs = Math.max(1, config.stopPollIntervalSeconds) * 1000;
   const localFollowUpCheckMs = 250;
-  const websocketProbe = startWebSocketProbe(config, codexThreadId);
+
+  while (true) {
+    const active = readActiveThreads();
+    if (!active.threads[codexThreadId]) {
+      return null;
+    }
+    if (hasQueuedLocalFollowUp(codexThreadId)) {
+      await disableRemoteSilently(config, codexThreadId, active);
+      return null;
+    }
+
+    const reply = await claimNextReply(config, codexThreadId);
+    if (reply) {
+      return reply;
+    }
+    if (Date.now() >= deadline) {
+      return null;
+    }
+    const sleepUntil = Date.now() + Math.min(intervalMs, Math.max(0, deadline - Date.now()));
+    while (Date.now() < sleepUntil) {
+      await sleep(Math.min(localFollowUpCheckMs, Math.max(0, sleepUntil - Date.now())));
+      const latestActive = readActiveThreads();
+      if (!latestActive.threads[codexThreadId]) {
+        return null;
+      }
+      if (hasQueuedLocalFollowUp(codexThreadId)) {
+        await disableRemoteSilently(config, codexThreadId, latestActive);
+        return null;
+      }
+    }
+  }
+}
+
+async function waitForReplyByWebSocket(config, codexThreadId) {
+  const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
+  const localFollowUpCheckMs = 250;
+  const socketWait = startWebSocketWait(config, codexThreadId);
+  if (!socketWait) {
+    return null;
+  }
+
+  let replyId = null;
+  let done = false;
+  socketWait.replyId.then(function onReply(value) {
+    replyId = value;
+    done = true;
+  }, function onError() {
+    done = true;
+  });
+  await Promise.resolve();
 
   try {
-    while (true) {
+    while (!done && Date.now() < deadline) {
       const active = readActiveThreads();
       if (!active.threads[codexThreadId]) {
         return null;
@@ -387,31 +477,15 @@ async function waitForReplyWhileActive(config, codexThreadId) {
         await disableRemoteSilently(config, codexThreadId, active);
         return null;
       }
+      await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
+    }
 
-      const reply = await claimNextReply(config, codexThreadId);
-      if (reply) {
-        return reply;
-      }
-      if (Date.now() >= deadline) {
-        return null;
-      }
-      const sleepUntil = Date.now() + Math.min(intervalMs, Math.max(0, deadline - Date.now()));
-      while (Date.now() < sleepUntil) {
-        await sleep(Math.min(localFollowUpCheckMs, Math.max(0, sleepUntil - Date.now())));
-        const latestActive = readActiveThreads();
-        if (!latestActive.threads[codexThreadId]) {
-          return null;
-        }
-        if (hasQueuedLocalFollowUp(codexThreadId)) {
-          await disableRemoteSilently(config, codexThreadId, latestActive);
-          return null;
-        }
-      }
+    if (!replyId) {
+      return null;
     }
+    return claimReplyById(config, codexThreadId, replyId);
   } finally {
-    if (websocketProbe) {
-      websocketProbe.close();
-    }
+    socketWait.close();
   }
 }
 
