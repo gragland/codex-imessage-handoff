@@ -20,7 +20,7 @@ When starting remote, run the starter script yourself. Do not tell the user to r
    - Keep it plain text and very short, ideally under 140 characters.
    - If there is not enough useful context, use no summary.
 2. Run `node ~/.codex/skills/remote-control/scripts/start-remote.js --handoff-summary="SUMMARY"` when you have a useful summary, or `node ~/.codex/skills/remote-control/scripts/start-remote.js` when you do not.
-3. If that fails with a sandbox or network error such as `fetch failed`, retry with approval using the absolute path `node /Users/gaberagland/.codex/skills/remote-control/scripts/start-remote.js` and the same `--handoff-summary` argument if one was used. Do not request escalation before trying the normal command first.
+3. If that fails with a sandbox or network error such as `fetch failed`, retry with approval using `node ~/.codex/skills/remote-control/scripts/start-remote.js` and the same `--handoff-summary` argument if one was used. Do not request escalation before trying the normal command first.
 4. Read the JSON output.
 5. Respond with `localMessage` exactly and nothing else. Do not include debug details unless the user explicitly asks for them.
 

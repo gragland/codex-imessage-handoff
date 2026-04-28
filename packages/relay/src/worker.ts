@@ -9,7 +9,7 @@ const JSON_HEADERS = {
 const IMESSAGE_REQUIRED_MESSAGE = "Remote Control only supports phone numbers that use iMessage for now.";
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
 const NO_REMOTE_THREADS_MESSAGE = "You have no remote codex threads";
-const SWITCH_RANGE_MESSAGE = "Text list to see active remote threads.";
+const SWITCH_RANGE_MESSAGE = "Text threads to see active remote threads.";
 const MEDIA_GROUP_QUIET_MS = 3000;
 
 interface RegisterBody {
@@ -831,7 +831,7 @@ async function insertRemoteReply(
   const id = makeId("reply");
   const createdAt = nowIso();
   const isTombstone = status === "applied";
-  // Control messages such as pairing/list/switch only need an external-id
+  // Control messages such as pairing and thread switching only need an external-id
   // tombstone for dedupe; their content is not retained.
   const storedBody = isTombstone ? "" : body;
   const media = isTombstone ? null : replyMediaJson(mediaUrl);

@@ -872,7 +872,7 @@ test("out-of-range number command does not change the active thread or enqueue a
     const response = await handleRequest(sendblueWebhook(inboundMessage("2", "switch_msg_bad")), testEnv);
     assert.equal(response.status, 200);
     assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, threadId);
-    assert.deepEqual(calls.map((call) => call.content), ["Text list to see active remote threads."]);
+    assert.deepEqual(calls.map((call) => call.content), ["Text threads to see active remote threads."]);
     const pending = await handleRequest(req(`/threads/${threadId}/pending`, {
       headers: { authorization: "Bearer dev-token" },
     }), testEnv);

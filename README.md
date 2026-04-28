@@ -43,19 +43,22 @@ iMessage:
 
 ```text
 threads
-2
 ```
 
-`threads` shows active remote threads. A bare number switches the active iMessage thread.
+`threads` shows active remote threads and lets users switch which thread receives iMessage replies.
 
 ## Self-Hosting
 
-See [packages/relay/README.md](packages/relay/README.md) for Wrangler deployment instructions.
+See [packages/relay](packages/relay) for Wrangler deployment instructions.
 
 ## Security Model
 
 Remote Control is a relay for prompts into a local Codex thread. The local config contains the token that gets linked to your phone number when you pair with iMessage.
 
-Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token leaks, reset the install token and pair your phone again.
+Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token leaks, reset the install token and pair your phone again:
+
+```bash
+npx @gaberagland/remote-control install --reset-token
+```
 
 The relay stores inbound iMessages only until Codex claims them. After claim, the relay keeps a content-free delivery marker so Sendblue retries do not duplicate work, but the message body and media URLs are deleted. Codex replies are not stored by the relay; they are forwarded to iMessage when the Stop hook publishes them.

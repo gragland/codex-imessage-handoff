@@ -4,48 +4,60 @@ This package contains the plain Cloudflare Worker relay for Remote Control. It i
 
 ## Self-Hosting
 
+Before starting, you need a Cloudflare account, a Sendblue account with an iMessage-capable number, and Node/pnpm installed locally.
+
 1. Install dependencies from the repo root.
 
    ```bash
    pnpm install
    ```
 
-2. Create a D1 database.
+2. Log in to Cloudflare.
 
    ```bash
    cd packages/relay
-   wrangler d1 create remote-control
+   pnpm exec wrangler login
    ```
 
-3. Copy the returned `database_id` into `wrangler.jsonc`.
-
-4. Apply migrations.
+3. Create a D1 database.
 
    ```bash
-   wrangler d1 migrations apply remote-control --remote
+   pnpm exec wrangler d1 create remote-control
    ```
 
-5. Set Sendblue secrets.
+4. Copy the returned `database_id` into `wrangler.jsonc`.
+
+5. Update `SENDBLUE_FROM_NUMBER` in `wrangler.jsonc` to your Sendblue number.
+
+6. Apply migrations.
 
    ```bash
-   wrangler secret put SENDBLUE_API_KEY
-   wrangler secret put SENDBLUE_SECRET_KEY
-   wrangler secret put SENDBLUE_WEBHOOK_SECRET
+   pnpm exec wrangler d1 migrations apply remote-control --remote
    ```
 
-6. Deploy.
+7. Set Sendblue secrets.
 
    ```bash
-   wrangler deploy
+   pnpm exec wrangler secret put SENDBLUE_API_KEY
+   pnpm exec wrangler secret put SENDBLUE_SECRET_KEY
+   pnpm exec wrangler secret put SENDBLUE_WEBHOOK_SECRET
    ```
 
-7. In Sendblue, set the inbound webhook URL to:
+   `SENDBLUE_WEBHOOK_SECRET` can be any strong random string you choose. Use the same value when configuring the Sendblue webhook signing secret.
+
+8. Deploy.
+
+   ```bash
+   pnpm exec wrangler deploy
+   ```
+
+9. In Sendblue, set the inbound webhook URL to:
 
    ```text
    https://<your-worker-url>/webhooks/sendblue
    ```
 
-8. Install the skill against your relay.
+10. Install the skill against your relay.
 
    ```bash
    npx @gaberagland/remote-control install --relay-url=https://<your-worker-url>
@@ -59,7 +71,7 @@ This package contains the plain Cloudflare Worker relay for Remote Control. It i
 - `SENDBLUE_API_BASE_URL`
 - `SENDBLUE_TYPING_DELAY_MS`
 
-Secrets must be configured with `wrangler secret put`.
+For self-hosting, change `SENDBLUE_FROM_NUMBER` to your Sendblue number before deploying. `SENDBLUE_API_BASE_URL` should usually stay as-is. Secrets must be configured with `wrangler secret put`.
 
 ## Custom Domain
 
@@ -71,7 +83,7 @@ After choosing a domain, add a Cloudflare custom domain route to `wrangler.jsonc
 ]
 ```
 
-Then redeploy and update the Sendblue webhook URL to the custom domain.
+Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook URL to the custom domain.
 
 ## API Summary
 
