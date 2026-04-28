@@ -25,6 +25,7 @@ Installer options:
 
 ```bash
 npx github:gragland/remote-control install --transport=websocket
+npx github:gragland/remote-control install --transport=poll
 npx github:gragland/remote-control install --relay-url=https://<your-worker-url>
 npx github:gragland/remote-control install --reset-token
 ```
@@ -57,7 +58,7 @@ start remote
 stop remote
 ```
 
-The local transport defaults to polling. To try WebSocket delivery, run the installer with `--transport=websocket` or set `REMOTE_CONTROL_TRANSPORT=websocket`; use `poll` to switch back.
+The local transport defaults to WebSocket delivery. To use polling instead, run the installer with `--transport=poll` or set `REMOTE_CONTROL_TRANSPORT=poll`; use `websocket` to switch back.
 
 iMessage:
 

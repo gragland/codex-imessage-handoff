@@ -349,6 +349,7 @@ test("publish-stop exits quietly after status when no remote reply is pending", 
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -402,6 +403,7 @@ test("publish-stop ignores session-log local messages unless a local follow-up i
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -446,6 +448,7 @@ test("publish-stop silently exits during polling when a transient local follow-u
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 3,
+    transport: "poll",
     stopPollIntervalSeconds: 1,
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
@@ -516,6 +519,7 @@ test("publish-stop claims a remote reply and emits a block decision", async () =
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -554,7 +558,7 @@ test("publish-stop claims a remote reply and emits a block decision", async () =
   assert.equal(mock.calls[2].body, null);
 });
 
-test("publish-stop websocket transport waits for a DO event and claims by id", async () => {
+test("publish-stop defaults to websocket transport and claims by id", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_1/claim": {
@@ -571,7 +575,6 @@ test("publish-stop websocket transport waits for a DO event and claims by id", a
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
-    transport: "websocket",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -631,6 +634,7 @@ test("publish-stop formats multi-line remote replies including blank lines", asy
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -696,6 +700,7 @@ test("publish-stop downloads one remote image and includes the local path", asyn
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -772,6 +777,7 @@ test("publish-stop downloads multiple remote images in order", async () => {
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -832,6 +838,7 @@ test("publish-stop reports a clear error when remote image download fails", asyn
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -866,6 +873,7 @@ test("publish-stop exits without polling when active entry is missing", async ()
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 0,
+    transport: "poll",
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({ threads: {} }));
 
@@ -895,6 +903,7 @@ test("publish-stop exits during polling after stop-remote removes the active ent
     apiBaseUrl: "https://example.test",
     token: "dev-token",
     stopPollSeconds: 3,
+    transport: "poll",
     stopPollIntervalSeconds: 1,
   }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({

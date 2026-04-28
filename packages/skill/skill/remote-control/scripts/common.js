@@ -61,13 +61,13 @@ function readConfig() {
 }
 
 function readTransport(configValue, envValue) {
-  const raw = String(envValue !== undefined && envValue !== null && envValue !== "" ? envValue : configValue || "poll")
+  const raw = String(envValue !== undefined && envValue !== null && envValue !== "" ? envValue : configValue || "websocket")
     .trim()
     .toLowerCase();
-  if (raw === "websocket" || raw === "ws") {
-    return "websocket";
+  if (raw === "poll" || raw === "polling") {
+    return "poll";
   }
-  return "poll";
+  return "websocket";
 }
 
 function readNumber(configValue, envValue, fallback) {

@@ -50,7 +50,7 @@ function normalizeRelayUrl(value) {
 }
 
 function normalizeTransport(value) {
-  const raw = String(value || "poll").trim().toLowerCase();
+  const raw = String(value || "websocket").trim().toLowerCase();
   if (raw === "websocket" || raw === "ws") {
     return "websocket";
   }

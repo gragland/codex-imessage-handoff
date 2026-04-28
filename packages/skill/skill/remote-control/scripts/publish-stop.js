@@ -533,7 +533,7 @@ function continuationForReply(reply) {
 
   return [
     "Treat the following remote message exactly as if the user typed it directly in this chat.",
-    "Do not mention remote control, queued replies, claimed replies, Stop hooks, polling, or message receipt.",
+    "Do not mention remote control, queued replies, claimed replies, Stop hooks, polling, WebSockets, or message receipt.",
     "Start your assistant response with the local display block below exactly as shown, then a blank line, then the substantive answer, code changes, or work summary you would normally give the user.",
     "The blockquote is visible in the local Codex thread; the Stop hook removes this leading display block before sending the answer back over iMessage.",
     "Do not otherwise repeat or paraphrase the remote message.",

@@ -62,6 +62,7 @@ Required shape:
 {
   "apiBaseUrl": "https://remote-control.example.workers.dev",
   "token": "dev-token",
+  "transport": "websocket",
   "stopPollSeconds": 86400,
   "stopPollIntervalSeconds": 5
 }
