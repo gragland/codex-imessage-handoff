@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "remote-control",
-      "database_id": "replace-with-your-d1-database-id",
+      "database_id": "89e4b2c1-33b9-488d-8ad8-d90806d90db6",
       "migrations_dir": "./src/db/migrations"
     }
   ],
