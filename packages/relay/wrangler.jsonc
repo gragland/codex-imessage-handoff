@@ -1,16 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "remote-control",
-  "main": "./src/server.ts",
+  "main": "./src/worker.ts",
   "compatibility_date": "2026-03-17",
   "compatibility_flags": [
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
   ],
-  "assets": {
-    "binding": "ASSETS",
-    "directory": "./dist/client"
-  },
   "d1_databases": [
     {
       "binding": "DB",

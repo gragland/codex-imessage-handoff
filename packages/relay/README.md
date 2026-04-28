@@ -1,6 +1,6 @@
 # Remote Control Relay
 
-This package contains the Cloudflare Worker/TanStack relay for Remote Control.
+This package contains the plain Cloudflare Worker relay for Remote Control. It intentionally avoids a web framework so the hosted code path is small and easy to audit.
 
 ## Self-Hosting
 
@@ -84,4 +84,14 @@ Then redeploy and update the Sendblue webhook URL to the custom domain.
 - `POST /threads/:threadId/stop`: disables remote control for a thread.
 - `POST /webhooks/sendblue`: receives Sendblue inbound events.
 
-All non-webhook thread APIs use `Authorization: Bearer <token>`. The relay derives the internal owner id from that token.
+All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pairs by texting the code, the relay links that token to their phone number.
+
+## Development
+
+```bash
+pnpm --filter @gaberagland/remote-control-relay test
+pnpm --filter @gaberagland/remote-control-relay typecheck
+pnpm --filter @gaberagland/remote-control-relay dev
+```
+
+`src/worker.ts` is the Worker entrypoint and contains the route handling directly.

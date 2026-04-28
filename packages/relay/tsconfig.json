@@ -6,15 +6,10 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "noEmit": true,
-    "types": ["vite/client", "node", "./src/types/env.d.ts"],
+    "types": ["node", "./src/types/env.d.ts"],
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": false,
-    "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "verbatimModuleSyntax": false
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"]
 }

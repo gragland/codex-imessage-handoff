@@ -5,7 +5,7 @@ This is the standalone public Remote Control repo.
 ## Repo Shape
 
 - `packages/skill`: installable Codex skill package.
-- `packages/relay`: Cloudflare Worker/TanStack relay deployed with Wrangler.
+- `packages/relay`: plain Cloudflare Worker relay deployed with Wrangler.
 
 ## Deployment
 

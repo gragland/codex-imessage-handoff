@@ -4,7 +4,7 @@
 
 - Create the public GitHub repo.
 - Publish `@gaberagland/remote-control` or update install docs to the final package name.
-- Confirm the GitHub links on the homepage point to the public repo.
+- Confirm docs point to the public repo.
 
 ## Hosted Relay
 
@@ -28,4 +28,4 @@
 - Send text from iMessage and confirm Codex responds.
 - Send an inbound image and confirm Codex receives a local file path.
 - Generate an image in Codex and confirm it arrives in iMessage.
-- Use `list`, switch by number, and `stop remote`.
+- Use `threads`, switch by number, and `stop remote`.
