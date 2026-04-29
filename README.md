@@ -15,13 +15,7 @@ Install the skill with the Skills CLI:
 npx skills add https://github.com/gragland/remote-control --skill remote-control
 ```
 
-From a local checkout:
-
-```bash
-npx skills add . --skill remote-control
-```
-
-The first `start remote` run completes setup automatically by creating the local relay config and installing the Codex Stop hook. Add `--global` if you want the skill available outside the current project.
+The first `start remote` run completes setup automatically by creating a config and installing the Codex Stop hook. Add `--global` if you want the skill available outside the current project.
 
 After installing, open a Codex thread and say:
 
