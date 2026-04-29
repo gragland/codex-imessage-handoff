@@ -57,13 +57,13 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
    https://<your-worker-url>/webhooks/sendblue
    ```
 
-10. Install the skill against your relay.
+10. Install and configure the skill against your relay.
 
    ```bash
-   npx github:gragland/remote-control install --relay-url=https://<your-worker-url>
+   npx skills add https://github.com/gragland/remote-control --skill remote-control
    ```
 
-   After the package is published to npm, use `npx @gaberagland/remote-control install --relay-url=https://<your-worker-url>`.
+   Then ask Codex: `Remote Control, use my self-hosted relay at https://<your-worker-url>.`
 
 ## Configuration
 

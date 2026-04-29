@@ -9,13 +9,7 @@ The hosted relay is the default path. You can also deploy your own Cloudflare re
 
 ## Install
 
-Current GitHub install, for testing before npm publish:
-
-```bash
-npx github:gragland/remote-control install
-```
-
-You can also install the skill with the Skills CLI:
+Install the skill with the Skills CLI:
 
 ```bash
 npx skills add https://github.com/gragland/remote-control --skill remote-control
@@ -27,22 +21,9 @@ From a local checkout, useful while the repo is private:
 npx skills add . --skill remote-control
 ```
 
-When installed this way, the first `start remote` run completes setup automatically by creating the local relay config and installing the Codex Stop hook. Add `--global` if you want the skill available outside the current project.
+The first `start remote` run completes setup automatically by creating the local relay config and installing the Codex Stop hook. Add `--global` if you want the skill available outside the current project.
 
-After the package is published to npm, the install command will be:
-
-```bash
-npx @gaberagland/remote-control install
-```
-
-Installer options:
-
-```bash
-npx github:gragland/remote-control install --relay-url=https://<your-worker-url>
-npx github:gragland/remote-control install --reset-token
-```
-
-Then open a Codex thread and invoke Remote Control, or say:
+After installing, open a Codex thread and invoke Remote Control, or say:
 
 ```text
 start remote
@@ -50,21 +31,21 @@ start remote
 
 If this is your first time, Codex prints a pairing code. Text that code to the phone number shown by Codex. After that, text normal instructions from iMessage.
 
+## Configure
+
+Configure Remote Control by asking the skill in Codex:
+
+```text
+Remote Control, show my config.
+Remote Control, use my self-hosted relay at https://<your-worker-url>.
+Remote Control, switch back to the hosted relay.
+Remote Control, reset my install token.
+Remote Control, uninstall yourself.
+```
+
 ## Uninstall
 
-First turn off or remove the Remote Control skill in Codex settings. Then run:
-
-```bash
-npx github:gragland/remote-control uninstall
-```
-
-After the package is published to npm, the uninstall command will be:
-
-```bash
-npx @gaberagland/remote-control uninstall
-```
-
-This removes the global Stop hook used for communication with the relay.
+Ask `Remote Control, uninstall yourself.` This removes the Codex Stop hook used for communication with the relay. You can then disable or remove the skill in Codex settings.
 
 ## How It Works
 
@@ -104,8 +85,8 @@ Remote Control is a relay for prompts into a local Codex thread. The local confi
 
 Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token leaks, reset the install token and pair your phone again:
 
-```bash
-npx github:gragland/remote-control install --reset-token
+```text
+Remote Control, reset my install token.
 ```
 
 Remote Control is designed to store the minimum data needed to route messages. The relay avoids persisting conversation content, avoids logging message details, and stores only routing metadata such as thread state, pairing state, and phone bindings.

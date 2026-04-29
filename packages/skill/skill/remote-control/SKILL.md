@@ -42,6 +42,16 @@ When the user says "stop remote":
 
 Do not include debug details unless the user asks for them. The running Stop hook re-checks local active-thread state while waiting and exits shortly after this command disables the thread.
 
+## Configure Remote Control
+
+Use `scripts/configure.js` for configuration requests. Resolve the script path relative to this `SKILL.md` and run it with Node.
+
+- If the user asks to show current config, run `node scripts/configure.js show`, then summarize the relay URL and whether config exists. Never print the token value.
+- If the user asks to use a self-hosted relay or set/change the relay URL, run `node scripts/configure.js set-relay --url="https://..."`. Tell the user the relay was updated and that they can now start remote.
+- If the user asks to switch back to the hosted relay, run `node scripts/configure.js use-default-relay`.
+- If the user asks to reset the install token, run `node scripts/configure.js reset-token`. Tell the user the token was reset and that they may need to pair iMessage again.
+- If the user asks to uninstall Remote Control, run `node scripts/configure.js uninstall`. Tell the user the Codex Stop hook was removed and they can disable or remove the skill in Codex settings.
+
 ## Stop Hook Behavior
 
 The global Stop hook publishes status, then waits for the active remote thread over WebSocket.
@@ -67,13 +77,9 @@ Required shape:
 }
 ```
 
-If config is missing, `start-remote.js` creates it automatically on first use. If automatic setup fails, ask the user to run:
+If config is missing, `start-remote.js` creates it automatically on first use.
 
-```bash
-npx @gaberagland/remote-control install
-```
-
-Then retry activation after the installer creates the config.
+For self-hosting, set the relay before starting remote by asking Remote Control to use the self-hosted relay URL.
 
 ## iMessage Testing
 

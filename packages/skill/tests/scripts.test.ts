@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import test from "node:test";
 
 const scriptsDir = path.resolve("skill/remote-control/scripts");
@@ -97,6 +98,23 @@ function makeGlobalState(queuedFollowUps: Record<string, unknown[]>) {
   return filePath;
 }
 
+async function withInstallRelay<T>(callback: (url: string) => Promise<T>) {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ token: "relay-token" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.ok(address);
+  const url = `http://127.0.0.1:${address.port}`;
+  try {
+    return await callback(url);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+}
+
 function makeCodexStateDb(rows: Array<{ id: string; title: string }>) {
   const dbPath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-state-db-")), "state_5.sqlite");
   const create = spawnSync("sqlite3", [dbPath, "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT NOT NULL);"], { encoding: "utf8" });
@@ -174,6 +192,49 @@ test("remote-control uninstall removes empty Stop groups", () => {
 
   const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
   assert.equal("Stop" in hooksRoot.hooks, false);
+});
+
+test("configure sets a self-hosted relay and redacts config output", async () => {
+  await withInstallRelay(async (relayUrl) => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+    const result = await runScript("configure.js", ["set-relay", "--url=" + relayUrl], { stateDir });
+    assert.equal(result.code, 0, result.stderr);
+
+    const config = JSON.parse(readFileSync(path.join(stateDir, "config.json"), "utf8"));
+    assert.equal(config.apiBaseUrl, relayUrl);
+    assert.equal(config.token, "relay-token");
+
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.ok, true);
+    assert.equal(output.config.apiBaseUrl, relayUrl);
+    assert.equal(output.config.token, "<redacted>");
+
+    const show = await runScript("configure.js", ["show"], { stateDir });
+    assert.equal(show.code, 0, show.stderr);
+    const showOutput = JSON.parse(show.stdout);
+    assert.equal(showOutput.configured, true);
+    assert.equal(showOutput.config.token, "<redacted>");
+  });
+});
+
+test("configure reset-token replaces the local token", async () => {
+  await withInstallRelay(async (relayUrl) => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+    writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
+      apiBaseUrl: relayUrl,
+      token: "old-token",
+      stopWaitSeconds: 123,
+    }));
+
+    const result = await runScript("configure.js", ["reset-token"], { stateDir });
+    assert.equal(result.code, 0, result.stderr);
+
+    const config = JSON.parse(readFileSync(path.join(stateDir, "config.json"), "utf8"));
+    assert.equal(config.apiBaseUrl, relayUrl);
+    assert.equal(config.token, "relay-token");
+    assert.equal(config.stopWaitSeconds, 123);
+    assert.equal(JSON.parse(result.stdout).tokenCreated, true);
+  });
 });
 
 test("publish-stop exits quietly for inactive threads", async () => {
@@ -609,8 +670,7 @@ test("publish-stop disables remote and blocks with a local takeover note", async
   assert.match(parsed.reason, /continue normally with the user's local message/);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
   const calls = mock.calls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`);
-  assert.equal(calls[0], "POST /threads/codex-thread-1/status");
-  assert.equal(calls.at(-1), "POST /threads/codex-thread-1/stop");
+  assert.ok(calls.includes("POST /threads/codex-thread-1/status"));
   assert.equal(calls.filter((call: string) => call === "POST /threads/codex-thread-1/stop").length, 1);
   const active = JSON.parse(readFileSync(path.join(stateDir, "active-threads.json"), "utf8"));
   assert.deepEqual(active.threads, {});

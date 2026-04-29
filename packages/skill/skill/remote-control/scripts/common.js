@@ -70,7 +70,7 @@ function readConfig() {
     };
   }
 
-  throw new Error("Remote Control config not found. Run `npx @gaberagland/remote-control install` to create " + configPath + ".");
+  throw new Error("Remote Control config not found. Run `start remote` once to create " + configPath + ".");
 }
 
 async function ensureLocalInstall() {
@@ -171,6 +171,52 @@ function installStopHook(hooksPath, targetSkillDir) {
   hooks.Stop = groups;
   root.hooks = hooks;
   writeJson(hooksPath, root);
+}
+
+function uninstallStopHook(hooksPath) {
+  // Remove only the hook we install. The user may have other Stop hooks, and
+  // those should keep working.
+  if (!existsSync(hooksPath)) {
+    return 0;
+  }
+
+  const root = readJson(hooksPath);
+  const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
+  const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
+  let removed = 0;
+  const nextGroups = [];
+
+  for (const group of groups) {
+    if (!group || typeof group !== "object" || !Array.isArray(group.hooks)) {
+      nextGroups.push(group);
+      continue;
+    }
+    const nextHooks = group.hooks.filter(function keepHook(hook) {
+      const shouldRemove = hook
+        && typeof hook === "object"
+        && typeof hook.command === "string"
+        && hook.command.indexOf("publish-stop.js") !== -1;
+      if (shouldRemove) {
+        removed += 1;
+      }
+      return !shouldRemove;
+    });
+    if (nextHooks.length > 0) {
+      nextGroups.push(Object.assign({}, group, { hooks: nextHooks }));
+    }
+  }
+
+  if (removed > 0) {
+    if (nextGroups.length > 0) {
+      hooks.Stop = nextGroups;
+    } else {
+      delete hooks.Stop;
+    }
+    root.hooks = hooks;
+    writeJson(hooksPath, root);
+  }
+
+  return removed;
 }
 
 function readNumber(configValue, envValue, fallback) {
@@ -401,6 +447,8 @@ module.exports = {
   apiFetch,
   basenameForTitle,
   configPath,
+  createInstallToken,
+  defaultRelayUrl,
   discoverThreadTitle,
   ensureLocalInstall,
   ensureStateDirs,
@@ -412,6 +460,7 @@ module.exports = {
   shellQuote,
   skillDir,
   stateDir,
+  uninstallStopHook,
   writeActiveThreads,
   writeJson,
 };

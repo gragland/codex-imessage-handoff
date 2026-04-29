@@ -18,10 +18,6 @@ function readArg(name) {
   return arg ? arg.slice(prefix.length) : "";
 }
 
-function hasFlag(name) {
-  return process.argv.includes(`--${name}`);
-}
-
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
@@ -195,17 +191,16 @@ function uninstallStopHook(hooksPath) {
 async function install() {
   // The installer is intentionally close to the eventual public npm flow. It
   // fetches/reuses a token, copies the skill, writes config, and registers hooks.
-  const apiBaseUrl = normalizeRelayUrl(readArg("relay-url") || defaultRelayUrl);
   const codexHome = readArg("codex-home") || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const skillTargetDir = path.join(codexHome, "skills", "remote-control");
   const configPath = path.join(skillTargetDir, ".state", "config.json");
   const hooksPath = path.join(codexHome, "hooks.json");
   const codexConfigPath = path.join(codexHome, "config.toml");
   const existingConfig = readJson(configPath, null);
+  const apiBaseUrl = normalizeRelayUrl(existingConfig?.apiBaseUrl || defaultRelayUrl);
   const canReuseToken = existingConfig
     && existingConfig.apiBaseUrl === apiBaseUrl
-    && typeof existingConfig.token === "string"
-    && !hasFlag("reset-token");
+    && typeof existingConfig.token === "string";
   const token = canReuseToken ? existingConfig.token : await createInstallToken(apiBaseUrl);
 
   ensureCodexHooksEnabled(codexConfigPath);
@@ -240,7 +235,7 @@ function uninstall() {
 
 const command = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "install";
 if (command !== "install" && command !== "uninstall") {
-  console.error("Usage: remote-control install [--relay-url=https://...] [--codex-home=/path] [--reset-token]\n       remote-control uninstall [--codex-home=/path]");
+  console.error("Usage: remote-control install [--codex-home=/path]\n       remote-control uninstall [--codex-home=/path]");
   process.exit(2);
 }
 
