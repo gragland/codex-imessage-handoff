@@ -547,7 +547,7 @@ function continuationForReply(reply) {
 
   return [
     "Treat the following remote message exactly as if the user typed it directly in this chat.",
-    "Do not mention remote control, queued replies, claimed replies, Stop hooks, WebSockets, or message receipt.",
+    "Answer normally and focus on the user's request; delivery details are not relevant unless the user asks about them.",
     "Start your assistant response with the local display block below exactly as shown, then a blank line, then the substantive answer, code changes, or work summary you would normally give the user.",
     "The blockquote is visible in the local Codex thread; the Stop hook removes this leading display block before sending the answer back over iMessage.",
     "Do not otherwise repeat or paraphrase the remote message.",
@@ -566,7 +566,7 @@ function continuationForLocalTakeover() {
     "Remote Control was active, but the user has sent a message locally in Codex.",
     "Start your assistant response with this friendly note, then a blank line, then continue normally with the user's local message:",
     "\"Got it - I'll turn off Remote Control since you're back here in Codex.\"",
-    "Do not mention Stop hooks, queued follow-ups, WebSockets, message receipt, or implementation details.",
+    "Keep the note user-facing and avoid implementation details unless the user asks about them.",
   ].join("\n");
 }
 

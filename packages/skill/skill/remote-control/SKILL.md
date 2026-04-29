@@ -16,7 +16,7 @@ When starting remote, run the starter script yourself. Do not tell the user to r
 1. Write a one-sentence handoff summary for iMessage before running the script.
    - Summarize only what this thread was about immediately before starting remote control.
    - Prefer natural recap wording like `We last discussed ...` when it fits.
-   - Do not mention remote control, iMessage, Sendblue, hooks, pairing, implementation details, or the act of enabling remote.
+   - Summarize the work itself, not the setup or delivery mechanism.
    - Keep it plain text and very short, ideally under 140 characters.
    - If there is not enough useful context, use no summary.
 2. Run the bundled `scripts/start-remote.js` from this skill's installed directory with `--handoff-summary="SUMMARY"` when you have a useful summary, or with no arguments when you do not. The first run creates local config and installs the Codex Stop hook if needed.
@@ -49,7 +49,7 @@ The global Stop hook publishes status, then waits for the active remote thread o
 - If no reply arrives before the Stop hook timeout, Codex stays idle quietly.
 - If a reply arrives, the Stop hook claims exactly one reply and continues the thread with that reply.
 - Treat continued remote messages exactly as if the user typed them directly into this chat.
-- Do not mention remote control, queued replies, claimed replies, Stop hooks, WebSockets, or message receipt in the assistant response.
+- Answer the user's remote message normally; delivery details are not part of the response unless the user asks about them.
 - When done, stop normally. The global Stop hook publishes the result and waits for the next reply.
 - If the user continues locally in the same Codex thread, the Stop hook disables remote control silently so the local message can run normally.
 

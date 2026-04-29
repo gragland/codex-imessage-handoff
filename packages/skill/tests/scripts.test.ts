@@ -273,7 +273,7 @@ test("start-remote creates thread and writes active registry", async () => {
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
   assert.equal(mock.calls[0].method, "POST");
   assert.equal(mock.calls[0].path, "/threads/codex-thread-1");
-  assert.equal(mock.calls[0].authorization, "Bearer dev-token");
+  assert.equal(mock.calls[0].authorization, "Bearer <redacted>");
   assert.equal("userId" in mock.calls[0].body, false);
   assert.equal(mock.calls[0].body.cwd, "/tmp/project");
   assert.equal("title" in mock.calls[0].body, false);

@@ -281,7 +281,7 @@ function mockApiFetch(config, pathName, init) {
   const call = {
     method,
     path: pathName,
-    authorization: "Bearer " + config.token,
+    authorization: "Bearer <redacted>",
     body,
   };
   mock.calls = Array.isArray(mock.calls) ? mock.calls.concat([call]) : [call];
@@ -358,6 +358,9 @@ function readCodexSidebarTitle(codexThreadId) {
   // iMessage thread list more recognizable than showing raw thread ids.
   const stateDbPath = codexStateDbPath();
   if (!codexThreadId || !existsSync(stateDbPath)) {
+    return "";
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(String(codexThreadId))) {
     return "";
   }
 
