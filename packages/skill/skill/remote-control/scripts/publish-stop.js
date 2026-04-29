@@ -9,6 +9,7 @@ const { apiFetch, readActiveThreads, readConfig, stateDir, writeActiveThreads } 
 const LOCAL_ONLY_START = "**Remote message**";
 const WS_CONNECTING = 0;
 const WS_OPEN = 1;
+const WEBSOCKET_RECONNECT_BACKOFF_MS = [250, 500, 1000, 2000, 5000];
 
 // publish-stop is the global Codex Stop hook. After each assistant response it:
 // 1. publishes the assistant result to Sendblue,
@@ -476,29 +477,63 @@ async function waitForReplyByPolling(config, codexThreadId, deadline = Date.now(
 
 async function waitForReplyByWebSocket(config, codexThreadId) {
   // Default transport: keep a socket open during the Stop hook wait. A
-  // reply-pending event wakes the hook without repeated HTTP polling.
+  // reply-pending event wakes the hook without repeated HTTP polling. If the
+  // connection drops before a reply arrives, retry with bounded backoff.
   const deadline = Date.now() + Math.max(0, config.stopPollSeconds) * 1000;
   const localFollowUpCheckMs = 250;
-  const socketWait = startWebSocketWait(config, codexThreadId);
-  if (!socketWait) {
-    return waitForReplyByPolling(config, codexThreadId, deadline);
-  }
 
-  let replyId = null;
-  let socketEndedWithoutReply = false;
-  let done = false;
-  socketWait.replyId.then(function onReply(value) {
-    replyId = value;
-    socketEndedWithoutReply = !value;
-    done = true;
-  }, function onError() {
-    socketEndedWithoutReply = true;
-    done = true;
-  });
-  await Promise.resolve();
+  for (let attempt = 0; attempt === 0 || Date.now() < deadline; attempt += 1) {
+    const active = readActiveThreads();
+    if (!active.threads[codexThreadId]) {
+      return null;
+    }
+    if (hasQueuedLocalFollowUp(codexThreadId)) {
+      await disableRemoteSilently(config, codexThreadId, active);
+      return null;
+    }
 
-  try {
-    while (!done && Date.now() < deadline) {
+    const socketWait = startWebSocketWait(config, codexThreadId);
+    if (!socketWait) {
+      return waitForReplyByPolling(config, codexThreadId, deadline);
+    }
+
+    let replyId = null;
+    let done = false;
+    socketWait.replyId.then(function onReply(value) {
+      replyId = value;
+      done = true;
+    }, function onError() {
+      done = true;
+    });
+    await Promise.resolve();
+
+    try {
+      while (!done && Date.now() < deadline) {
+        const latestActive = readActiveThreads();
+        if (!latestActive.threads[codexThreadId]) {
+          return null;
+        }
+        if (hasQueuedLocalFollowUp(codexThreadId)) {
+          await disableRemoteSilently(config, codexThreadId, latestActive);
+          return null;
+        }
+        await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
+      }
+
+      if (replyId) {
+        return claimReplyById(config, codexThreadId, replyId);
+      }
+    } finally {
+      socketWait.close();
+    }
+
+    if (Date.now() >= deadline) {
+      return null;
+    }
+
+    const retryDelay = WEBSOCKET_RECONNECT_BACKOFF_MS[Math.min(attempt, WEBSOCKET_RECONNECT_BACKOFF_MS.length - 1)];
+    const sleepUntil = Date.now() + Math.min(retryDelay, Math.max(0, deadline - Date.now()));
+    while (Date.now() < sleepUntil) {
       const active = readActiveThreads();
       if (!active.threads[codexThreadId]) {
         return null;
@@ -509,17 +544,9 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
       }
       await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
     }
-
-    if (!replyId) {
-      if (socketEndedWithoutReply && Date.now() < deadline) {
-        return waitForReplyByPolling(config, codexThreadId, deadline);
-      }
-      return null;
-    }
-    return claimReplyById(config, codexThreadId, replyId);
-  } finally {
-    socketWait.close();
   }
+
+  return null;
 }
 
 async function prepareReplyForContinuation(codexThreadId, reply) {
