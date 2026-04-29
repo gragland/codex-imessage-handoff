@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const skillSourceDir = path.join(packageDir, "skill", "remote-control");
+const skillSourceDir = path.join(packageDir, "skill");
 const defaultRelayUrl = process.env.REMOTE_CONTROL_RELAY_URL || "https://remote-control.gabe-ragland.workers.dev";
 // Codex Stop hooks need a long timeout because they intentionally wait for the
 // user's next remote iMessage after each assistant turn.

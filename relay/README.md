@@ -15,11 +15,11 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 2. Log in to Cloudflare.
 
    ```bash
-   cd packages/relay
+   cd relay
    pnpm exec wrangler login
    ```
 
-3. Create a D1 database.
+3. Create a Cloudflare D1 database for routing metadata.
 
    ```bash
    pnpm exec wrangler d1 create remote-control
@@ -29,7 +29,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 
 5. Update `SENDBLUE_FROM_NUMBER` in `wrangler.jsonc` to your Sendblue number.
 
-6. Apply migrations.
+6. Apply metadata migrations.
 
    ```bash
    pnpm exec wrangler d1 migrations apply remote-control --remote
@@ -63,7 +63,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
    npx skills add https://github.com/gragland/remote-control --skill remote-control
    ```
 
-   Then ask Codex: `Remote Control use my self-hosted relay at https://<your-worker-url>.`
+   Then ask Codex: `Remote Control use my self-hosted relay at https://<your-worker-url>`
 
 ## Configuration
 
@@ -100,7 +100,7 @@ Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook U
 
 All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pairs by texting the code, the relay links that token to their phone number.
 
-The relay stores the minimum data needed to route messages. Durable storage is limited to routing metadata such as thread state, pairing state, phone bindings, and delivery dedupe ids. Message content is held only in the Durable Object's in-memory buffer while pending, then scrubbed when local Codex claims it. Outbound Codex replies are forwarded to Sendblue and are not stored by the relay.
+The relay stores the minimum data needed to route messages. Cloudflare D1 is still required for routing metadata such as thread state, pairing state, and phone bindings, but message content is never stored there. Inbound message content is held only in the Durable Object's in-memory buffer while pending, then scrubbed when local Codex claims it. Outbound Codex replies are forwarded to Sendblue and are not stored by the relay.
 
 Cloudflare persisted logging is disabled for this Worker in `wrangler.jsonc`. Keep Worker logs, log exports, Tail Workers, and tracing off in production unless the full pipeline is reviewed first. Message bodies are never placed in URLs, and relay warnings intentionally avoid logging Sendblue response payloads because provider error payloads could echo message content.
 

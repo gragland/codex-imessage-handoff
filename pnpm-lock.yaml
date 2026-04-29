@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  packages/relay:
+  relay:
     devDependencies:
       '@types/node':
         specifier: ^25.2.3
@@ -19,8 +19,6 @@ importers:
       wrangler:
         specifier: ^4.67.0
         version: 4.86.0(@cloudflare/workers-types@4.20260426.1)
-
-  packages/skill: {}
 
 packages:
 

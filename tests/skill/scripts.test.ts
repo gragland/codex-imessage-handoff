@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import test from "node:test";
 
-const scriptsDir = path.resolve("skill/remote-control/scripts");
+const scriptsDir = path.resolve("skill/scripts");
 
 // These tests execute the installed skill scripts the same way Codex hooks do.
 // Most network calls are routed through a mock file so the tests can verify the

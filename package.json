@@ -1,15 +1,22 @@
 {
-  "name": "remote-control-repo",
+  "name": "@gaberagland/remote-control",
   "version": "0.1.0",
-  "private": true,
+  "description": "Install the Remote Control Codex skill for continuing Codex threads from iMessage.",
   "type": "module",
   "bin": {
-    "remote-control": "./packages/skill/bin/remote-control.mjs"
+    "remote-control": "./bin/remote-control.mjs"
   },
+  "files": [
+    "bin/",
+    "skill/"
+  ],
   "packageManager": "pnpm@10.26.0",
   "scripts": {
     "build": "pnpm --filter @gaberagland/remote-control-relay build",
-    "test": "pnpm --filter @gaberagland/remote-control-relay test && pnpm --filter @gaberagland/remote-control test",
+    "test": "pnpm --filter @gaberagland/remote-control-relay test && node --experimental-strip-types --test tests/skill/*.test.ts",
     "typecheck": "pnpm --filter @gaberagland/remote-control-relay typecheck"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

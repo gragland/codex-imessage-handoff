@@ -2,8 +2,8 @@
 
 Remote Control lets you continue a local Codex thread from iMessage. It has two parts:
 
-- `packages/skill`: the installable Codex skill and Stop hook scripts.
-- `packages/relay`: a Cloudflare relay that connects Codex with iMessage via [Sendblue](https://www.sendblue.com/).
+- `skill`: the installable Codex skill and Stop hook scripts.
+- `relay`: a Cloudflare relay that connects Codex with iMessage via [Sendblue](https://www.sendblue.com/).
 
 The hosted relay is the default path. You can also deploy your own Cloudflare relay and point the skill at it.
 
@@ -13,6 +13,12 @@ Install the skill with the Skills CLI:
 
 ```bash
 npx skills add https://github.com/gragland/remote-control --skill remote-control
+```
+
+The installer-style flow is still supported:
+
+```bash
+npx github:gragland/remote-control install
 ```
 
 The first `start remote` run completes setup automatically by creating a config and installing the Codex Stop hook. Add `--global` if you want the skill available outside the current project.
@@ -30,16 +36,16 @@ If this is your first time, Codex prints a pairing code. Text that code to the p
 Configure Remote Control by asking the skill in Codex:
 
 ```text
-Remote Control show my config.
-Remote Control use my self-hosted relay at https://<your-worker-url>.
-Remote Control switch back to the hosted relay.
-Remote Control reset my install token.
-Remote Control uninstall yourself.
+Remote Control show my config
+Remote Control use my self-hosted relay at https://<your-worker-url>
+Remote Control switch back to the hosted relay
+Remote Control reset my install token
+Remote Control uninstall yourself
 ```
 
 ## Uninstall
 
-Ask `Remote Control uninstall yourself.` This removes the Codex Stop hook used for communication with the relay. You can then disable or remove the skill in Codex settings.
+Ask `Remote Control uninstall yourself`. This removes the Codex Stop hook used for communication with the relay. You can then disable or remove the skill in Codex settings.
 
 ## How It Works
 
@@ -71,7 +77,7 @@ threads
 
 ## Self-Hosting
 
-See [packages/relay](packages/relay) for Cloudflare deployment instructions.
+See [relay](relay) for Cloudflare deployment instructions.
 
 ## Security Model
 
@@ -80,7 +86,7 @@ Remote Control is a relay for prompts into a local Codex thread. The local confi
 Keep `~/.codex/skills/remote-control/.state/config.json` private. If that token leaks, reset the install token and pair your phone again:
 
 ```text
-Remote Control reset my install token.
+Remote Control reset my install token
 ```
 
 Remote Control is designed to store the minimum data needed to route messages. The relay avoids persisting conversation content, avoids logging message details, and stores only routing metadata such as thread state, pairing state, and phone bindings.
