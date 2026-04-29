@@ -555,7 +555,7 @@ test("publish-stop ignores session-log local messages unless a local follow-up i
   assert.equal(Boolean(active.threads["codex-thread-1"]), true);
 });
 
-test("publish-stop silently exits during polling when a transient local follow-up is queued", async () => {
+test("publish-stop disables remote and blocks with a local takeover note", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "GET /threads/codex-thread-1/pending": { body: { replies: [] } },
@@ -609,7 +609,11 @@ test("publish-stop silently exits during polling when a transient local follow-u
   writeFileSync(globalState, JSON.stringify({ "queued-follow-ups": {} }));
 
   assert.equal((await closed), 0);
-  assert.equal(stdout, "");
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.decision, "block");
+  assert.match(parsed.reason, /Remote Control was active/);
+  assert.match(parsed.reason, /turn off Remote Control since you're back here in Codex/);
+  assert.match(parsed.reason, /continue normally with the user's local message/);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
   const calls = mock.calls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`);
   assert.equal(calls[0], "POST /threads/codex-thread-1/status");

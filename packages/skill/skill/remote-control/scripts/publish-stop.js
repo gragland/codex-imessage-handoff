@@ -429,6 +429,11 @@ async function disableRemoteSilently(config, codexThreadId, active) {
   writeActiveThreads(active);
 }
 
+async function disableRemoteForLocalTakeover(config, codexThreadId, active) {
+  await disableRemoteSilently(config, codexThreadId, active);
+  return { localTakeover: true };
+}
+
 async function waitForReplyWhileActive(config, codexThreadId) {
   // The transport switch is local-only. Both modes still claim from the same
   // relay Durable Object buffer.
@@ -449,8 +454,7 @@ async function waitForReplyByPolling(config, codexThreadId, deadline = Date.now(
       return null;
     }
     if (hasQueuedLocalFollowUp(codexThreadId)) {
-      await disableRemoteSilently(config, codexThreadId, active);
-      return null;
+      return disableRemoteForLocalTakeover(config, codexThreadId, active);
     }
 
     const reply = await claimNextReply(config, codexThreadId);
@@ -468,8 +472,7 @@ async function waitForReplyByPolling(config, codexThreadId, deadline = Date.now(
         return null;
       }
       if (hasQueuedLocalFollowUp(codexThreadId)) {
-        await disableRemoteSilently(config, codexThreadId, latestActive);
-        return null;
+        return disableRemoteForLocalTakeover(config, codexThreadId, latestActive);
       }
     }
   }
@@ -488,8 +491,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
       return null;
     }
     if (hasQueuedLocalFollowUp(codexThreadId)) {
-      await disableRemoteSilently(config, codexThreadId, active);
-      return null;
+      return disableRemoteForLocalTakeover(config, codexThreadId, active);
     }
 
     const socketWait = startWebSocketWait(config, codexThreadId);
@@ -514,8 +516,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
           return null;
         }
         if (hasQueuedLocalFollowUp(codexThreadId)) {
-          await disableRemoteSilently(config, codexThreadId, latestActive);
-          return null;
+          return disableRemoteForLocalTakeover(config, codexThreadId, latestActive);
         }
         await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
       }
@@ -539,8 +540,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
         return null;
       }
       if (hasQueuedLocalFollowUp(codexThreadId)) {
-        await disableRemoteSilently(config, codexThreadId, active);
-        return null;
+        return disableRemoteForLocalTakeover(config, codexThreadId, active);
       }
       await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
     }
@@ -612,6 +612,15 @@ function continuationForReply(reply) {
   ].join("\n");
 }
 
+function continuationForLocalTakeover() {
+  return [
+    "Remote Control was active, but the user has sent a message locally in Codex.",
+    "Start your assistant response with this friendly note, then a blank line, then continue normally with the user's local message:",
+    "\"Got it - I'll turn off Remote Control since you're back here in Codex.\"",
+    "Do not mention Stop hooks, queued follow-ups, polling, WebSockets, message receipt, or implementation details.",
+  ].join("\n");
+}
+
 async function main() {
 try {
   // Codex passes Stop hook context through stdin. If this is not an active remote
@@ -631,6 +640,10 @@ try {
   }
   if (hasQueuedLocalFollowUp(codexThreadId)) {
     await disableRemoteSilently(config, codexThreadId, active);
+    console.log(JSON.stringify({
+      decision: "block",
+      reason: continuationForLocalTakeover(),
+    }));
     process.exit(0);
   }
 
@@ -667,6 +680,10 @@ try {
   }
   if (hasQueuedLocalFollowUp(codexThreadId)) {
     await disableRemoteSilently(config, codexThreadId, latestActive);
+    console.log(JSON.stringify({
+      decision: "block",
+      reason: continuationForLocalTakeover(),
+    }));
     process.exit(0);
   }
   latestActive.threads[codexThreadId] = {
@@ -683,7 +700,12 @@ try {
   writeActiveThreads(latestActive);
 
   const reply = await waitForReplyWhileActive(config, codexThreadId);
-  if (reply) {
+  if (reply && reply.localTakeover) {
+    console.log(JSON.stringify({
+      decision: "block",
+      reason: continuationForLocalTakeover(),
+    }));
+  } else if (reply) {
     // "block" tells Codex to immediately continue with this synthetic user
     // message instead of ending the turn.
     const preparedReply = await prepareReplyForContinuation(codexThreadId, reply);
