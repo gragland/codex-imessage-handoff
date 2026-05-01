@@ -51,6 +51,7 @@ export interface PhoneBindingRow {
   phone_number: string;
   owner_id: string;
   active_thread_id: string | null;
+  contact_card_sent_at: string | null;
   created_at: string;
   updated_at: string;
 }

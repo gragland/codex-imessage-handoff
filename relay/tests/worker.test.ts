@@ -89,6 +89,16 @@ class FakeD1Database {
       return { meta: { changes: 1 } };
     }
 
+    if (sql.includes("UPDATE phone_bindings") && sql.includes("contact_card_sent_at")) {
+      const [sentAt, updatedAt, phoneNumber] = values as string[];
+      const binding = this.phoneBindings.get(phoneNumber);
+      if (binding) {
+        binding.contact_card_sent_at = sentAt;
+        binding.updated_at = updatedAt;
+      }
+      return { meta: { changes: binding ? 1 : 0 } };
+    }
+
     if (sql.includes("UPDATE handoff_threads") && sql.includes("pairing_code = NULL") && !sql.includes("handoff_enabled = 0")) {
       if (sql.includes("WHERE owner_id = ?")) {
         const [updatedAt, ownerId, excludedId] = values as string[];
@@ -168,6 +178,7 @@ class FakeD1Database {
         phone_number: phoneNumber,
         owner_id: ownerId,
         active_thread_id: activeThreadId,
+        contact_card_sent_at: existing?.contact_card_sent_at ?? null,
         created_at: existing?.created_at ?? createdAt,
         updated_at: updatedAt,
       });
@@ -339,6 +350,22 @@ test("creates install tokens", async () => {
   const body = await json(response);
   assert.equal(typeof body.token, "string");
   assert.match(String(body.token), /^ih_[a-f0-9]{64}$/);
+});
+
+test("serves the Codex contact card and image", async () => {
+  const testEnv = env();
+  const card = await handleRequest(req("/contact.vcf"), testEnv);
+  assert.equal(card.status, 200);
+  assert.equal(card.headers.get("content-type"), "text/vcard; charset=utf-8");
+  const body = await card.text();
+  assert.match(body, /FN:Codex/);
+  assert.match(body, /TEL;TYPE=CELL:\+12344198201/);
+  assert.match(body, /PHOTO;VALUE=URI;TYPE=PNG:https:\/\/imessage-handoff\.test\/codex-contact\.png/);
+
+  const image = await handleRequest(req("/codex-contact.png"), testEnv);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("content-type"), "image/png");
+  assert.ok((await image.arrayBuffer()).byteLength > 1000);
 });
 
 test("creates and upserts a handoff thread with an explicit id", async () => {
@@ -553,6 +580,8 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
       "https://api.sendblue.test/api/mark-read",
       "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
       "https://api.sendblue.test/api/send-message",
+      "https://api.sendblue.test/api/send-message",
+      "https://api.sendblue.test/api/send-message",
     ]);
     assert.deepEqual(calls.map((call) => call.body), [{
       number: "+15551234567",
@@ -561,12 +590,59 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
       number: "+15551234567",
       from_number: "+12344198201",
       content: 'You’re connected to "iMessage test" on Codex.\n\nYou were deciding what the first playable prototype should include.\n\nWhat do you want to do next?',
+    }, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      content: "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
+    }, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      media_url: "https://imessage-handoff.test/contact.vcf",
     }]);
+    assert.equal(typeof db.phoneBindings.get("+15551234567")?.contact_card_sent_at, "string");
 
     assert.deepEqual(pendingReplies(testEnv, threadId), []);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("sends the pairing contact card only once per phone", async () => {
+  const testEnv = env();
+  const threadId = await register(testEnv);
+  const db = testEnv.DB as unknown as FakeD1Database;
+  const pairingCode = db.threads.get(threadId)?.pairing_code;
+  assert.equal(typeof pairingCode, "string");
+  db.phoneBindings.set("+15551234567", {
+    phone_number: "+15551234567",
+    owner_id: "previous-owner",
+    active_thread_id: null,
+    contact_card_sent_at: "2026-01-01T00:00:00.000Z",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  });
+
+  const originalFetch = globalThis.fetch;
+  const calls: Array<Record<string, unknown> | null> = [];
+  globalThis.fetch = async (input, init) => {
+    if (String(input).includes("/evaluate-service")) {
+      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
+    }
+    calls.push(init?.body ? JSON.parse(String(init.body)) : null);
+    return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
+  };
+  try {
+    const response = await handleRequest(sendblueWebhook(inboundMessage(String(pairingCode), "pair_msg_seen_contact")), testEnv);
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(outboundContents(calls), [
+    'You’re connected to "iMessage test" on Codex.\n\nWhat do you want to do next?',
+  ]);
+  assert.equal(db.phoneBindings.get("+15551234567")?.owner_id, DEV_OWNER_ID);
+  assert.equal(db.phoneBindings.get("+15551234567")?.contact_card_sent_at, "2026-01-01T00:00:00.000Z");
 });
 
 test("activation message omits the summary paragraph when no summary exists", async () => {
@@ -593,6 +669,7 @@ test("activation message omits the summary paragraph when no summary exists", as
   }
   assert.deepEqual(outboundContents(calls), [
     'You’re connected to "iMessage test" on Codex.\n\nWhat do you want to do next?',
+    "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
   ]);
 });
 
@@ -620,6 +697,7 @@ test("activation message uses generic copy when no title exists", async () => {
   }
   assert.deepEqual(outboundContents(calls), [
     "You’re connected to this Codex thread.\n\nWhat do you want to do next?",
+    "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
   ]);
 });
 
@@ -1193,6 +1271,7 @@ test("publishes every non-empty status to sendblue", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1249,6 +1328,7 @@ test("publishes each changed assistant message", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1288,6 +1368,7 @@ test("uploads one generated image and sends it with send-message", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1343,6 +1424,7 @@ test("sends text and one generated image together", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1395,6 +1477,7 @@ test("uploads multiple generated images and sends one carousel", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1452,6 +1535,7 @@ test("sends text before carousel for text plus multiple images", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1508,6 +1592,7 @@ test("sendblue media failure does not fail status publish", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1542,6 +1627,7 @@ test("sendblue failure does not fail status publish", async () => {
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1574,6 +1660,7 @@ test("sendblue error body is redacted without failing status publish", async () 
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });
@@ -1613,6 +1700,7 @@ test("sendblue response without a message handle returns notification error", as
     phone_number: "+15551234567",
     owner_id: DEV_OWNER_ID,
     active_thread_id: threadId,
+    contact_card_sent_at: null,
     created_at: "2026-04-25T18:20:00.000Z",
     updated_at: "2026-04-25T18:20:00.000Z",
   });

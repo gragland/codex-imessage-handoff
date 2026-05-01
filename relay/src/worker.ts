@@ -1,3 +1,4 @@
+import { CODEX_CONTACT_IMAGE_BASE64 } from "./contact-card-image.ts";
 import type { Env, PhoneBindingRow, HandoffReplyRow, HandoffThreadRow } from "./types.ts";
 
 // The relay is intentionally small: one Worker file handles registration,
@@ -12,6 +13,9 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "authorization,content-type",
 };
 const IMESSAGE_REQUIRED_MESSAGE = "iMessage Handoff only supports phone numbers that use iMessage for now.";
+const CONTACT_CARD_MESSAGE = "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.";
+const CONTACT_CARD_FILENAME = "contact.vcf";
+const CONTACT_CARD_IMAGE_FILENAME = "codex-contact.png";
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
 const NO_HANDOFF_THREADS_MESSAGE = "You have no iMessage handoff threads";
 const SWITCH_RANGE_MESSAGE = "Text threads to see active iMessage handoff threads.";
@@ -464,13 +468,13 @@ function handleCreateInstallation() {
 }
 
 async function findPhoneBinding(env: Env, phoneNumber: string) {
-  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, created_at, updated_at FROM phone_bindings WHERE phone_number = ?")
+  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, contact_card_sent_at, created_at, updated_at FROM phone_bindings WHERE phone_number = ?")
     .bind(phoneNumber)
     .first<PhoneBindingRow>();
 }
 
 async function findPhoneBindingForOwner(env: Env, ownerId: string) {
-  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, created_at, updated_at FROM phone_bindings WHERE owner_id = ?")
+  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, contact_card_sent_at, created_at, updated_at FROM phone_bindings WHERE owner_id = ?")
     .bind(ownerId)
     .first<PhoneBindingRow>();
 }
@@ -491,7 +495,7 @@ async function findExternalReply(env: Env, externalId: string) {
 }
 
 async function findPhoneForThread(env: Env, threadId: string) {
-  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, created_at, updated_at FROM phone_bindings WHERE active_thread_id = ?")
+  return env.DB.prepare("SELECT phone_number, owner_id, active_thread_id, contact_card_sent_at, created_at, updated_at FROM phone_bindings WHERE active_thread_id = ?")
     .bind(threadId)
     .first<PhoneBindingRow>();
 }
@@ -656,6 +660,13 @@ async function sendReadReceipt(env: Env, phoneNumber: string) {
   }
 }
 
+async function sendPairingContactCard(env: Env, phoneNumber: string, origin: string) {
+  // A vCard lets the user save this Sendblue number as "Codex" so future
+  // messages are recognizable in iMessage. It is optional and sent only once.
+  await sendSendblueMessage(env, phoneNumber, CONTACT_CARD_MESSAGE);
+  await sendSendblueMessage(env, phoneNumber, null, new URL(`/${CONTACT_CARD_FILENAME}`, origin).toString());
+}
+
 async function setActiveThreadForOwner(env: Env, ownerId: string, threadId: string | null) {
   await env.DB.prepare(
     "UPDATE phone_bindings SET active_thread_id = ?, updated_at = ? WHERE owner_id = ?",
@@ -802,6 +813,49 @@ function base64ToBytes(value: string) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+function escapeVCardValue(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function contactCardResponse(request: Request, env: Env) {
+  const origin = new URL(request.url).origin;
+  const phoneNumber = env.SENDBLUE_FROM_NUMBER?.trim() || "+12344198201";
+  const photoUrl = new URL(`/${CONTACT_CARD_IMAGE_FILENAME}`, origin).toString();
+  const vcard = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    `FN:${escapeVCardValue("Codex")}`,
+    `ORG:${escapeVCardValue("OpenAI")}`,
+    `TEL;TYPE=CELL:${phoneNumber}`,
+    "URL:https://openai.com/codex",
+    `NOTE:${escapeVCardValue("Use this contact for iMessage Handoff with Codex.")}`,
+    `PHOTO;VALUE=URI;TYPE=PNG:${photoUrl}`,
+    "END:VCARD",
+    "",
+  ].join("\r\n");
+
+  return new Response(vcard, {
+    headers: {
+      "content-type": "text/vcard; charset=utf-8",
+      "content-disposition": `attachment; filename="${CONTACT_CARD_FILENAME}"`,
+      "cache-control": "public, max-age=3600",
+    },
+  });
+}
+
+function contactCardImageResponse() {
+  return new Response(base64ToBytes(CODEX_CONTACT_IMAGE_BASE64), {
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
 }
 
 async function uploadSendblueMedia(env: Env, image: GeneratedImageInput) {
@@ -1114,6 +1168,7 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
       await sendControlMessage(env, fromNumber, IMESSAGE_REQUIRED_MESSAGE);
       return json({ ok: true, paired: false, unsupportedService: "SMS" });
     }
+    const previousBinding = await findPhoneBinding(env, fromNumber);
     await env.DB.prepare(
       "DELETE FROM phone_bindings WHERE owner_id = ? AND phone_number != ?",
     ).bind(pairingThread.owner_id, fromNumber).run();
@@ -1135,6 +1190,17 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
       await sendSendblueMessage(env, fromNumber, handoffActivationMessage(pairingThread));
     } catch {
       // Pairing should still succeed if the confirmation send is temporarily unavailable.
+    }
+    if (!previousBinding?.contact_card_sent_at) {
+      try {
+        await sendPairingContactCard(env, fromNumber, new URL(request.url).origin);
+        const sentAt = nowIso();
+        await env.DB.prepare(
+          "UPDATE phone_bindings SET contact_card_sent_at = ?, updated_at = ? WHERE phone_number = ?",
+        ).bind(sentAt, sentAt, fromNumber).run();
+      } catch {
+        console.warn("Sendblue contact card failed.");
+      }
     }
     return json({ ok: true, paired: true, threadId: pairingThread.id, service });
   }
@@ -1260,6 +1326,14 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
   try {
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
       return json({ ok: true, service: "imessage-handoff" });
+    }
+
+    if (request.method === "GET" && url.pathname === `/${CONTACT_CARD_FILENAME}`) {
+      return contactCardResponse(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === `/${CONTACT_CARD_IMAGE_FILENAME}`) {
+      return contactCardImageResponse();
     }
 
     if (request.method === "POST" && url.pathname === "/webhooks/sendblue") {
