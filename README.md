@@ -25,22 +25,6 @@ On first use, Codex asks whether you want the hosted iMessage relay or your own 
 
 If this is your first time, Codex prints a pairing code. Text that code to the phone number shown by Codex. After that, text normal instructions from iMessage.
 
-## Configure
-
-Configure it by invoking the skill in Codex:
-
-```text
-$imessage-handoff show my config
-$imessage-handoff use my self-hosted relay at https://<your-worker-url>
-$imessage-handoff switch back to the hosted relay
-$imessage-handoff reset my install token
-$imessage-handoff remove hook
-```
-
-## Uninstall
-
-Ask `$imessage-handoff remove hook`. This removes the Codex Stop hook used for communication with the relay. You can then disable or remove the skill in Codex settings.
-
 ## How It Works
 
 1. You choose the hosted relay or configure your own relay.
@@ -74,6 +58,22 @@ threads
 ## Self-Hosting
 
 See [relay](relay) for Cloudflare deployment instructions.
+
+## Configure
+
+Configure it by invoking the skill in Codex:
+
+```text
+$imessage-handoff show my config
+$imessage-handoff use my self-hosted relay at https://<your-worker-url>
+$imessage-handoff switch back to the hosted relay
+$imessage-handoff reset my install token
+$imessage-handoff remove hook
+```
+
+## Uninstall
+
+Ask `$imessage-handoff remove hook`. This removes the Codex Stop hook used for communication with the relay. You can then disable or remove the skill in Codex settings.
 
 ## Security Model
 
