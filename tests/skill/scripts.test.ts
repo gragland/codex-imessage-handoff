@@ -146,6 +146,7 @@ test("remote-control uninstall removes only the Remote Control Stop hook", () =>
         {
           hooks: [
             { type: "command", command: "'node' '/tmp/remote-control/scripts/publish-stop.js'", timeout: 1 },
+            { type: "command", command: "'node' '/tmp/other-tool/scripts/publish-stop.js'", timeout: 2 },
             { type: "command", command: "echo keep-stop-hook" },
           ],
         },
@@ -171,7 +172,7 @@ test("remote-control uninstall removes only the Remote Control Stop hook", () =>
 
   const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
   const stopCommands = hooksRoot.hooks.Stop.flatMap((group: { hooks: Array<{ command: string }> }) => group.hooks.map((hook) => hook.command));
-  assert.deepEqual(stopCommands, ["echo keep-stop-hook", "echo keep-other-group"]);
+  assert.deepEqual(stopCommands, ["'node' '/tmp/other-tool/scripts/publish-stop.js'", "echo keep-stop-hook", "echo keep-other-group"]);
   assert.equal(hooksRoot.hooks.Notification[0].hooks[0].command, "echo keep-notification-hook");
 });
 

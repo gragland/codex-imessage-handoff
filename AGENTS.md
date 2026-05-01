@@ -19,6 +19,7 @@ This is the standalone Remote Control repo, intended to become public before lau
 ## Gotchas
 
 - The README install path uses `$skill-installer install https://github.com/gragland/remote-control/tree/main/remote-control`. The root package also keeps the installer-style `npx github:gragland/remote-control install` flow for compatibility. Runtime setup and config changes should happen through natural-language skill commands where possible.
+- The `remote-control` skill directory name and `scripts/publish-stop.js` hook path are part of the install/uninstall contract. If the GitHub repo name, skill directory name, installed skill path, or hook script name changes, update README/relay docs, `package.json` files, `bin/remote-control.mjs`, `remote-control/scripts/common.js` hook matching, tests, and any install/reset instructions together.
 - The installer default relay is still a temporary hosted workers.dev URL until a final product domain is chosen.
 - Sendblue API calls should use `api.sendblue.com`, not the older `.co` host.
 - Keep this repo free of private monorepo dependencies such as `@vibe/ui`.

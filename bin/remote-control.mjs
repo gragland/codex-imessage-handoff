@@ -67,8 +67,7 @@ function uninstallStopHook(hooksPath) {
     const nextHooks = group.hooks.filter((hook) => {
       const shouldRemove = hook
         && typeof hook === "object"
-        && typeof hook.command === "string"
-        && hook.command.includes("publish-stop.js");
+        && isRemoteControlStopHook(hook.command);
       if (shouldRemove) {
         removed += 1;
       }
@@ -90,6 +89,16 @@ function uninstallStopHook(hooksPath) {
   }
 
   return removed;
+}
+
+function isRemoteControlStopHook(command) {
+  if (typeof command !== "string") {
+    return false;
+  }
+  const normalized = command.replace(/\\/g, "/");
+  return normalized.includes("/remote-control/scripts/publish-stop.js")
+    || normalized.includes("/.agents/skills/remote-control/scripts/publish-stop.js")
+    || normalized.includes("/.codex/skills/remote-control/scripts/publish-stop.js");
 }
 
 function install() {

@@ -144,7 +144,7 @@ function installStopHook(hooksPath, targetSkillDir) {
       if (!hook || typeof hook !== "object") {
         continue;
       }
-      if (typeof hook.command === "string" && hook.command.includes("publish-stop.js")) {
+      if (isRemoteControlStopHook(hook.command)) {
         hook.type = "command";
         hook.command = command;
         hook.timeout = remoteStopHookTimeoutSeconds;
@@ -172,6 +172,16 @@ function installStopHook(hooksPath, targetSkillDir) {
   writeJson(hooksPath, root);
 }
 
+function isRemoteControlStopHook(command) {
+  if (typeof command !== "string") {
+    return false;
+  }
+  const normalized = command.replace(/\\/g, "/");
+  return normalized.indexOf("/remote-control/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.agents/skills/remote-control/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.codex/skills/remote-control/scripts/publish-stop.js") !== -1;
+}
+
 function uninstallStopHook(hooksPath) {
   // Remove only the hook we install. The user may have other Stop hooks, and
   // those should keep working.
@@ -193,8 +203,7 @@ function uninstallStopHook(hooksPath) {
     const nextHooks = group.hooks.filter(function keepHook(hook) {
       const shouldRemove = hook
         && typeof hook === "object"
-        && typeof hook.command === "string"
-        && hook.command.indexOf("publish-stop.js") !== -1;
+        && isRemoteControlStopHook(hook.command);
       if (shouldRemove) {
         removed += 1;
       }
