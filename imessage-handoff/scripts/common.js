@@ -6,12 +6,12 @@ const https = require("https");
 const path = require("path");
 
 const skillDir = path.resolve(__dirname, "..");
-const stateDir = process.env.REMOTE_CONTROL_STATE_DIR || path.join(skillDir, ".state");
+const stateDir = process.env.IMESSAGE_HANDOFF_STATE_DIR || path.join(skillDir, ".state");
 const configPath = path.join(stateDir, "config.json");
 const activeThreadsPath = path.join(stateDir, "active-threads.json");
-const defaultRelayUrl = process.env.REMOTE_CONTROL_RELAY_URL || "https://remote-control.gabe-ragland.workers.dev";
-const remoteStopHookTimeoutSeconds = 86520;
-const remoteStopHookStatusMessage = "Waiting for remote messages";
+const defaultRelayUrl = process.env.IMESSAGE_HANDOFF_RELAY_URL || "https://imessage-handoff.gabe-ragland.workers.dev";
+const handoffStopHookTimeoutSeconds = 86520;
+const handoffStopHookStatusMessage = "Waiting for iMessage replies";
 
 // Shared helpers for the local skill scripts. The scripts are plain Node files
 // because they run inside Codex hooks, outside the Cloudflare Worker runtime.
@@ -48,51 +48,51 @@ function readConfig() {
   if (existsSync(configPath)) {
     const config = readJson(configPath);
     if (!config.apiBaseUrl || !config.token) {
-      throw new Error("Remote Control config is missing apiBaseUrl or token: " + configPath);
+      throw new Error("iMessage Handoff config is missing apiBaseUrl or token: " + configPath);
     }
     return {
       apiBaseUrl: String(config.apiBaseUrl).replace(/\/+$/, ""),
       token: String(config.token),
-      stopWaitSeconds: readNumber(config.stopWaitSeconds, process.env.REMOTE_CONTROL_STOP_WAIT_SECONDS, 86400),
+      stopWaitSeconds: readNumber(config.stopWaitSeconds, process.env.IMESSAGE_HANDOFF_STOP_WAIT_SECONDS, 86400),
     };
   }
 
-  const apiBaseUrl = process.env.REMOTE_CONTROL_API_BASE_URL
-    ? process.env.REMOTE_CONTROL_API_BASE_URL.replace(/\/+$/, "")
+  const apiBaseUrl = process.env.IMESSAGE_HANDOFF_API_BASE_URL
+    ? process.env.IMESSAGE_HANDOFF_API_BASE_URL.replace(/\/+$/, "")
     : "";
-  const token = process.env.REMOTE_CONTROL_TOKEN;
+  const token = process.env.IMESSAGE_HANDOFF_TOKEN;
   if (apiBaseUrl && token) {
     const config = { apiBaseUrl, token };
     writeJson(configPath, config);
     return {
       apiBaseUrl: config.apiBaseUrl,
       token: config.token,
-      stopWaitSeconds: readNumber(undefined, process.env.REMOTE_CONTROL_STOP_WAIT_SECONDS, 86400),
+      stopWaitSeconds: readNumber(undefined, process.env.IMESSAGE_HANDOFF_STOP_WAIT_SECONDS, 86400),
     };
   }
 
-  throw new Error("Remote Control config not found. Run `start remote` once to create " + configPath + ".");
+  throw new Error("iMessage Handoff config not found. Run `start handoff` once to create " + configPath + ".");
 }
 
 async function ensureLocalInstall() {
   // First use goes through the skill's relay choice and hook consent prompts
-  // before this script runs. Starting remote only ensures relay config exists;
+  // before this script runs. Starting iMessage Handoff only ensures relay config exists;
   // it does not rewrite hook setup.
   const existingConfig = existsSync(configPath) ? readJson(configPath) : null;
-  if (!existingConfig && !(process.env.REMOTE_CONTROL_API_BASE_URL && process.env.REMOTE_CONTROL_TOKEN)) {
-    throw new Error("Remote Control is not configured yet. Choose the hosted relay or provide your self-hosted relay URL before starting remote.");
+  if (!existingConfig && !(process.env.IMESSAGE_HANDOFF_API_BASE_URL && process.env.IMESSAGE_HANDOFF_TOKEN)) {
+    throw new Error("iMessage Handoff is not configured yet. Choose the hosted relay or provide your self-hosted relay URL before starting iMessage Handoff.");
   }
-  const apiBaseUrl = String(process.env.REMOTE_CONTROL_API_BASE_URL || existingConfig?.apiBaseUrl || "").replace(/\/+$/, "");
+  const apiBaseUrl = String(process.env.IMESSAGE_HANDOFF_API_BASE_URL || existingConfig?.apiBaseUrl || "").replace(/\/+$/, "");
   const token = existingConfig && typeof existingConfig.token === "string" && existingConfig.token.trim()
     ? existingConfig.token.trim()
-    : process.env.REMOTE_CONTROL_TOKEN
-      ? String(process.env.REMOTE_CONTROL_TOKEN).trim()
+    : process.env.IMESSAGE_HANDOFF_TOKEN
+      ? String(process.env.IMESSAGE_HANDOFF_TOKEN).trim()
       : await createInstallToken(apiBaseUrl);
 
   writeJson(configPath, {
     apiBaseUrl,
     token,
-    stopWaitSeconds: readNumber(existingConfig?.stopWaitSeconds, process.env.REMOTE_CONTROL_STOP_WAIT_SECONDS, 86400),
+    stopWaitSeconds: readNumber(existingConfig?.stopWaitSeconds, process.env.IMESSAGE_HANDOFF_STOP_WAIT_SECONDS, 86400),
   });
   return readConfig();
 }
@@ -104,7 +104,7 @@ async function createInstallToken(apiBaseUrl) {
   });
   const body = response.text.trim() ? JSON.parse(response.text) : {};
   if (response.status < 200 || response.status >= 300 || typeof body.token !== "string" || !body.token.trim()) {
-    throw new Error("Remote Control relay did not return an install token from " + apiBaseUrl + "/installations.");
+    throw new Error("iMessage Handoff relay did not return an install token from " + apiBaseUrl + "/installations.");
   }
   return body.token.trim();
 }
@@ -135,14 +135,14 @@ function areCodexHooksEnabled(filePath) {
   return Boolean(match && match[1] === "true");
 }
 
-function remoteStopHookCommand(targetSkillDir) {
+function handoffStopHookCommand(targetSkillDir) {
   return [
     shellQuote(process.execPath),
     shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
   ].join(" ");
 }
 
-function hasRemoteControlStopHook(hooksPath) {
+function hasImessageHandoffStopHook(hooksPath) {
   if (!existsSync(hooksPath)) {
     return false;
   }
@@ -154,16 +154,16 @@ function hasRemoteControlStopHook(hooksPath) {
       && typeof group === "object"
       && Array.isArray(group.hooks)
       && group.hooks.some(function hasHook(hook) {
-        return hook && typeof hook === "object" && isRemoteControlStopHook(hook.command);
+        return hook && typeof hook === "object" && isImessageHandoffStopHook(hook.command);
       });
   });
 }
 
-function remoteControlHookStatus(codexHomePath, targetSkillDir) {
+function imessageHandoffHookStatus(codexHomePath, targetSkillDir) {
   const configFilePath = path.join(codexHomePath, "config.toml");
   const hooksPath = path.join(codexHomePath, "hooks.json");
   const codexHooksEnabled = areCodexHooksEnabled(configFilePath);
-  const stopHookInstalled = hasRemoteControlStopHook(hooksPath);
+  const stopHookInstalled = hasImessageHandoffStopHook(hooksPath);
   return {
     codexHooksEnabled,
     stopHookInstalled,
@@ -174,21 +174,21 @@ function remoteControlHookStatus(codexHomePath, targetSkillDir) {
 }
 
 function installStopHook(hooksPath, targetSkillDir) {
-  if (hasRemoteControlStopHook(hooksPath)) {
+  if (hasImessageHandoffStopHook(hooksPath)) {
     return false;
   }
 
   const root = existsSync(hooksPath) ? readJson(hooksPath) : {};
   const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
   const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
-  const command = remoteStopHookCommand(targetSkillDir);
+  const command = handoffStopHookCommand(targetSkillDir);
 
   groups.push({
     hooks: [{
       type: "command",
       command,
-      timeout: remoteStopHookTimeoutSeconds,
-      statusMessage: remoteStopHookStatusMessage,
+      timeout: handoffStopHookTimeoutSeconds,
+      statusMessage: handoffStopHookStatusMessage,
       silent: true,
     }],
   });
@@ -198,14 +198,14 @@ function installStopHook(hooksPath, targetSkillDir) {
   return true;
 }
 
-function isRemoteControlStopHook(command) {
+function isImessageHandoffStopHook(command) {
   if (typeof command !== "string") {
     return false;
   }
   const normalized = command.replace(/\\/g, "/");
-  return normalized.indexOf("/remote-control/scripts/publish-stop.js") !== -1
-    || normalized.indexOf("/.agents/skills/remote-control/scripts/publish-stop.js") !== -1
-    || normalized.indexOf("/.codex/skills/remote-control/scripts/publish-stop.js") !== -1;
+  return normalized.indexOf("/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.agents/skills/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/publish-stop.js") !== -1;
 }
 
 function uninstallStopHook(hooksPath) {
@@ -229,7 +229,7 @@ function uninstallStopHook(hooksPath) {
     const nextHooks = group.hooks.filter(function keepHook(hook) {
       const shouldRemove = hook
         && typeof hook === "object"
-        && isRemoteControlStopHook(hook.command);
+        && isImessageHandoffStopHook(hook.command);
       if (shouldRemove) {
         removed += 1;
       }
@@ -266,7 +266,7 @@ async function apiFetch(config, pathName, init) {
   // All local-to-relay calls go through this helper so auth and test mocking are
   // consistent across start, stop, and publish-stop.
   const options = init || {};
-  if (process.env.REMOTE_CONTROL_MOCK_FILE) {
+  if (process.env.IMESSAGE_HANDOFF_MOCK_FILE) {
     return mockApiFetch(config, pathName, options);
   }
 
@@ -295,7 +295,7 @@ async function apiFetch(config, pathName, init) {
       ? body.error || body.message
       : response.statusText;
     const endpointHint = parsedJson ? "" : " at " + requestUrl;
-    throw new Error("Remote Control API " + response.status + endpointHint + ": " + message);
+    throw new Error("iMessage Handoff API " + response.status + endpointHint + ": " + message);
   }
   return body;
 }
@@ -351,7 +351,7 @@ function httpFetch(requestUrl, options) {
 function mockApiFetch(config, pathName, init) {
   // Tests use a JSON mock file instead of standing up the whole relay.
   // Recording calls here lets tests assert the local script behavior precisely.
-  const mockPath = process.env.REMOTE_CONTROL_MOCK_FILE;
+  const mockPath = process.env.IMESSAGE_HANDOFF_MOCK_FILE;
   const mock = existsSync(mockPath) ? readJson(mockPath) : {};
   const method = String(init.method || "GET").toUpperCase();
   const key = method + " " + pathName;
@@ -370,14 +370,14 @@ function mockApiFetch(config, pathName, init) {
     : { status: 404, body: { error: "No mock response for " + key } };
   writeJson(mockPath, mock);
   if (response.status && response.status >= 400) {
-    throw new Error("Remote Control API " + response.status + ": " + ((response.body && response.body.error) || "mock error"));
+    throw new Error("iMessage Handoff API " + response.status + ": " + ((response.body && response.body.error) || "mock error"));
   }
   return response.body || {};
 }
 
 function readActiveThreads() {
   // Active threads are local state: they tell the Stop hook which Codex threads
-  // should keep waiting for remote iMessages.
+  // should keep waiting for iMessage replies.
   ensureStateDirs();
   if (!existsSync(activeThreadsPath)) {
     return { threads: {} };
@@ -430,7 +430,7 @@ function isUsableThreadTitle(title) {
 }
 
 function codexStateDbPath() {
-  return process.env.REMOTE_CONTROL_STATE_DB || path.join(codexHome(), "state_5.sqlite");
+  return process.env.IMESSAGE_HANDOFF_STATE_DB || path.join(codexHome(), "state_5.sqlite");
 }
 
 function readCodexSidebarTitle(codexThreadId) {
@@ -489,14 +489,14 @@ module.exports = {
   ensureLocalInstall,
   ensureCodexHooksEnabled,
   ensureStateDirs,
-  hasRemoteControlStopHook,
+  hasImessageHandoffStopHook,
   installStopHook,
   isUsableThreadTitle,
   readActiveThreads,
   readCodexSidebarTitle,
   readConfig,
   readJson,
-  remoteControlHookStatus,
+  imessageHandoffHookStatus,
   shellQuote,
   skillDir,
   stateDir,

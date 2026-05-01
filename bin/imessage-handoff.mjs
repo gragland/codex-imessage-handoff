@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const skillSourceDir = path.join(packageDir, "remote-control");
+const skillSourceDir = path.join(packageDir, "imessage-handoff");
 
 function readArg(name) {
   const prefix = `--${name}=`;
@@ -32,7 +32,7 @@ function installSkill(skillTargetDir, codexHome) {
   // accidentally lose the user's token or active thread list.
   mkdirSync(path.dirname(skillTargetDir), { recursive: true });
   const statePath = path.join(skillTargetDir, ".state");
-  const preservedStatePath = path.join(codexHome, `.remote-control-state-${process.pid}`);
+  const preservedStatePath = path.join(codexHome, `.imessage-handoff-state-${process.pid}`);
   const hasState = existsSync(statePath);
   if (hasState) {
     rmSync(preservedStatePath, { recursive: true, force: true });
@@ -67,7 +67,7 @@ function uninstallStopHook(hooksPath) {
     const nextHooks = group.hooks.filter((hook) => {
       const shouldRemove = hook
         && typeof hook === "object"
-        && isRemoteControlStopHook(hook.command);
+        && isImessageHandoffStopHook(hook.command);
       if (shouldRemove) {
         removed += 1;
       }
@@ -91,21 +91,21 @@ function uninstallStopHook(hooksPath) {
   return removed;
 }
 
-function isRemoteControlStopHook(command) {
+function isImessageHandoffStopHook(command) {
   if (typeof command !== "string") {
     return false;
   }
   const normalized = command.replace(/\\/g, "/");
-  return normalized.includes("/remote-control/scripts/publish-stop.js")
-    || normalized.includes("/.agents/skills/remote-control/scripts/publish-stop.js")
-    || normalized.includes("/.codex/skills/remote-control/scripts/publish-stop.js");
+  return normalized.includes("/imessage-handoff/scripts/publish-stop.js")
+    || normalized.includes("/.agents/skills/imessage-handoff/scripts/publish-stop.js")
+    || normalized.includes("/.codex/skills/imessage-handoff/scripts/publish-stop.js");
 }
 
 function install() {
   // Keep the npx installer as a lightweight compatibility path. First-use relay
   // choice and hook installation happen later through the skill conversation.
   const codexHome = readArg("codex-home") || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  const skillTargetDir = path.join(codexHome, "skills", "remote-control");
+  const skillTargetDir = path.join(codexHome, "skills", "imessage-handoff");
   const configPath = path.join(skillTargetDir, ".state", "config.json");
   const hooksPath = path.join(codexHome, "hooks.json");
   const existingConfig = readJson(configPath, null);
@@ -135,7 +135,7 @@ function uninstall() {
 
 const command = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "install";
 if (command !== "install" && command !== "uninstall") {
-  console.error("Usage: remote-control install [--codex-home=/path]\n       remote-control uninstall [--codex-home=/path]");
+  console.error("Usage: imessage-handoff install [--codex-home=/path]\n       imessage-handoff uninstall [--codex-home=/path]");
   process.exit(2);
 }
 

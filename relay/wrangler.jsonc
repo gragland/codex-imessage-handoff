@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "remote-control",
+  "name": "imessage-handoff",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-03-17",
   "compatibility_flags": [
@@ -12,8 +12,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "remote-control",
-      "database_id": "89e4b2c1-33b9-488d-8ad8-d90806d90db6",
+      "database_name": "imessage-handoff",
+      "database_id": "29b280f6-a3a0-4980-86f3-d58b142b9bd6",
       "migrations_dir": "./src/db/migrations"
     }
   ],
@@ -22,15 +22,15 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "REMOTE_THREAD_SOCKET",
-        "class_name": "RemoteThreadSocket"
+        "name": "HANDOFF_SOCKET",
+        "class_name": "HandoffSocket"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RemoteThreadSocket"]
+      "new_sqlite_classes": ["HandoffSocket"]
     }
   ],
   // Keep Cloudflare-side log persistence disabled for this app. This supports

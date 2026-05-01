@@ -1,0 +1,7 @@
+interface:
+  display_name: "iMessage Handoff"
+  short_description: "Continue a Codex thread from iMessage"
+  icon_small: "./assets/imessage-handoff-small.svg"
+  icon_large: "./assets/imessage-handoff.png"
+  brand_color: "#22C85B"
+  default_prompt: "Start iMessage handoff for this Codex thread."

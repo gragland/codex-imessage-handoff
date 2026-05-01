@@ -1,7 +1,7 @@
 export interface Env {
   // Cloudflare bindings and env vars available to the Worker at runtime.
   DB: D1Database;
-  REMOTE_THREAD_SOCKET?: DurableObjectNamespace;
+  HANDOFF_SOCKET?: DurableObjectNamespace;
   SENDBLUE_API_KEY?: string;
   SENDBLUE_SECRET_KEY?: string;
   SENDBLUE_WEBHOOK_SECRET?: string;
@@ -10,12 +10,12 @@ export interface Env {
   SENDBLUE_TYPING_DELAY_MS?: string;
 }
 
-export type RemoteReplyStatus = "pending" | "applied";
+export type HandoffReplyStatus = "pending" | "applied";
 
 // D1 table row shapes. These are intentionally close to the SQL schema so the
 // relay code makes it obvious which fields are durable metadata.
 
-export interface RemoteThreadRow {
+export interface HandoffThreadRow {
   // One local Codex thread that may be controlled from iMessage.
   id: string;
   owner_id: string;
@@ -23,14 +23,14 @@ export interface RemoteThreadRow {
   title: string | null;
   handoff_summary: string | null;
   status: string;
-  remote_enabled: number;
+  handoff_enabled: number;
   pairing_code: string | null;
   last_stop_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface RemoteReplyRow {
+export interface HandoffReplyRow {
   // Pending/applied inbound reply metadata. With the DO buffer enabled, bodies
   // and media live in memory and are scrubbed on claim.
   id: string;
@@ -40,7 +40,7 @@ export interface RemoteReplyRow {
   media: string | null;
   media_group_id: string | null;
   media_index: number | null;
-  status: RemoteReplyStatus;
+  status: HandoffReplyStatus;
   created_at: string;
   applied_at: string | null;
 }

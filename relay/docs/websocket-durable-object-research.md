@@ -1,6 +1,6 @@
 # WebSocket Durable Object Research
 
-Research note for the WebSocket-based remote reply delivery path.
+Research note for the WebSocket-based iMessage reply delivery path.
 
 ## Summary
 
@@ -14,8 +14,8 @@ Recommended direction: keep D1 for non-conversation routing metadata such as thr
 
 The relay includes a WebSocket delivery endpoint at `GET /threads/:threadId/events`.
 
-- The endpoint authenticates the thread, then proxies the WebSocket upgrade to a single global `RemoteThreadSocket` Durable Object.
-- The local Stop hook opens this socket when it starts waiting for remote input.
+- The endpoint authenticates the thread, then proxies the WebSocket upgrade to a single global `HandoffSocket` Durable Object.
+- The local Stop hook opens this socket when it starts waiting for iMessage input.
 - The Stop hook sends a `stop-hook-connected` message.
 - The Durable Object replies with an `ack` message confirming receipt and sends `reply-pending` when a reply is already buffered or newly inserted.
 - The Stop hook claims the reply over the existing HTTP claim endpoint, so delivery and content scrubbing stay explicit.
@@ -42,11 +42,11 @@ Cloudflare supports this shape:
 - Workers and Durable Objects can accept inbound WebSocket upgrades. A normal Worker route can authenticate and proxy the upgraded request to a Durable Object instance.
 - A Sendblue webhook can route to the same Durable Object instance and ask it to deliver the inbound message to any currently connected local Stop hook socket.
 
-The Stop hook can open a WebSocket while it is waiting for remote input, then close it when one of these happens:
+The Stop hook can open a WebSocket while it is waiting for iMessage input, then close it when one of these happens:
 
-- A remote message arrives and the hook emits the Codex block decision.
+- A iMessage reply arrives and the hook emits the Codex block decision.
 - The hook timeout expires.
-- `stop remote` or a local follow-up disables the active remote thread.
+- `stop handoff` or a local follow-up disables the active iMessage handoff thread.
 - The process exits or the socket errors.
 
 On the next assistant stop, the Stop hook can open a fresh WebSocket. Keeping a socket open outside Stop hook execution would require a separate persistent local daemon, which is a larger installer and lifecycle change.
@@ -103,7 +103,7 @@ Cons:
 
 This is technically possible but not a good next step.
 
-- Installer or `start remote` starts a background process that keeps the WebSocket open across turns.
+- Installer or `start handoff` starts a background process that keeps the WebSocket open across turns.
 - Stop hook communicates with that daemon instead of connecting directly.
 
 Pros:

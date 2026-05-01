@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 const { apiFetch, configPath, discoverThreadTitle, ensureLocalInstall, shellQuote, readActiveThreads, writeActiveThreads } = require("./common.js");
 
-// start-remote is run by the Codex skill when the user wants this thread to be
+// start-handoff is run by the Codex skill when the user wants this thread to be
 // reachable from iMessage. It registers the thread with the relay and records
-// local state so the global Stop hook knows to wait for remote replies.
+// local state so the global Stop hook knows to wait for iMessage replies.
 
 function readArg(name) {
   const prefix = "--" + name + "=";
@@ -35,7 +35,7 @@ function normalizeHandoffSummary(value) {
 async function main() {
   const codexThreadId = process.env.CODEX_THREAD_ID ? process.env.CODEX_THREAD_ID.trim() : "";
   if (!codexThreadId) {
-    console.error("CODEX_THREAD_ID is required. Run start remote from inside a Codex thread.");
+    console.error("CODEX_THREAD_ID is required. Run start handoff from inside a Codex thread.");
     process.exit(2);
   }
   const config = await ensureLocalInstall();
@@ -85,9 +85,9 @@ async function main() {
   const localMessage = registrationResult.pairingRequired
     // First install: user must text this code once so the relay can bind phone
     // number -> local install token owner.
-    ? `Remote control is enabled. Text \`${registrationResult.pairingCode}\` to \`${sendblueNumberDisplay}\` to continue this thread from iMessage.`
-    // Already paired: starting remote switches the paired phone to this thread.
-    : `Remote control is enabled. Text \`${sendblueNumberDisplay}\` to talk to Codex.`;
+    ? `iMessage Handoff is enabled. Text \`${registrationResult.pairingCode}\` to \`${sendblueNumberDisplay}\` to continue this thread from iMessage.`
+    // Already paired: starting iMessage Handoff switches the paired phone to this thread.
+    : `iMessage Handoff is enabled. Text \`${sendblueNumberDisplay}\` to talk to Codex.`;
 
   console.log(JSON.stringify({
     ok: true,

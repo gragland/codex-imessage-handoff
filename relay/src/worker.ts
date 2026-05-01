@@ -1,4 +1,4 @@
-import type { Env, PhoneBindingRow, RemoteReplyRow, RemoteThreadRow } from "./types.ts";
+import type { Env, PhoneBindingRow, HandoffReplyRow, HandoffThreadRow } from "./types.ts";
 
 // The relay is intentionally small: one Worker file handles registration,
 // Sendblue webhooks, local Codex WebSockets, and outbound Sendblue sends.
@@ -11,12 +11,12 @@ const JSON_HEADERS = {
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "authorization,content-type",
 };
-const IMESSAGE_REQUIRED_MESSAGE = "Remote Control only supports phone numbers that use iMessage for now.";
+const IMESSAGE_REQUIRED_MESSAGE = "iMessage Handoff only supports phone numbers that use iMessage for now.";
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
-const NO_REMOTE_THREADS_MESSAGE = "You have no remote codex threads";
-const SWITCH_RANGE_MESSAGE = "Text threads to see active remote threads.";
+const NO_HANDOFF_THREADS_MESSAGE = "You have no iMessage handoff threads";
+const SWITCH_RANGE_MESSAGE = "Text threads to see active iMessage handoff threads.";
 // Sendblue can deliver one image as several webhooks. Wait briefly before
-// surfacing grouped media so Codex receives one complete remote message.
+// surfacing grouped media so Codex receives one complete iMessage reply.
 const MEDIA_GROUP_QUIET_MS = 3000;
 
 interface RegisterBody {
@@ -55,11 +55,11 @@ interface ReplyMedia {
   url: string;
 }
 
-export class RemoteThreadSocket {
+export class HandoffSocket {
   private readonly state: DurableObjectState;
-  // This is the in-memory message buffer. When REMOTE_THREAD_SOCKET is bound,
+  // This is the in-memory message buffer. When HANDOFF_SOCKET is bound,
   // inbound message text/media does not go to D1; it lives here until claim.
-  private readonly replies = new Map<string, RemoteReplyRow>();
+  private readonly replies = new Map<string, HandoffReplyRow>();
 
   constructor(state: DurableObjectState) {
     this.state = state;
@@ -222,7 +222,7 @@ export class RemoteThreadSocket {
   }
 
   private nextMediaPendingWaitMs(threadId: string) {
-    const grouped = new Map<string, RemoteReplyRow[]>();
+    const grouped = new Map<string, HandoffReplyRow[]>();
     for (const row of this.pendingRows(threadId)) {
       if (row.media_group_id) {
         grouped.set(row.media_group_id, [...(grouped.get(row.media_group_id) ?? []), row]);
@@ -346,13 +346,13 @@ function makeInstallToken() {
   // associated phone binding, so it should stay in the local skill state dir.
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return `rc_${bytesToHex(bytes)}`;
+  return `ih_${bytesToHex(bytes)}`;
 }
 
 async function ownerIdFromToken(token: string) {
   // The relay stores only a deterministic hash-derived owner id, not the raw
   // local token. That keeps D1 useful for routing without storing bearer tokens.
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`remote-control:${token}`));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`imessage-handoff:${token}`));
   return bytesToHex(new Uint8Array(digest));
 }
 
@@ -372,12 +372,12 @@ function makePairingCode() {
 }
 
 async function findThread(env: Env, threadId: string) {
-  return env.DB.prepare("SELECT * FROM remote_threads WHERE id = ?")
+  return env.DB.prepare("SELECT * FROM handoff_threads WHERE id = ?")
     .bind(threadId)
-    .first<RemoteThreadRow>();
+    .first<HandoffThreadRow>();
 }
 
-function assertAuthorized(thread: RemoteThreadRow | null, ownerId: string) {
+function assertAuthorized(thread: HandoffThreadRow | null, ownerId: string) {
   if (!thread) {
     throw Object.assign(new Error("Thread not found."), { status: 404 });
   }
@@ -387,14 +387,14 @@ function assertAuthorized(thread: RemoteThreadRow | null, ownerId: string) {
   return thread;
 }
 
-function publicThread(thread: RemoteThreadRow) {
+function publicThread(thread: HandoffThreadRow) {
   return {
     id: thread.id,
     cwd: thread.cwd,
     title: thread.title,
     handoffSummary: thread.handoff_summary,
     status: thread.status,
-    remoteEnabled: thread.remote_enabled === 1,
+    handoffEnabled: thread.handoff_enabled === 1,
     pairingCode: thread.pairing_code,
     lastStopAt: thread.last_stop_at,
     createdAt: thread.created_at,
@@ -403,7 +403,7 @@ function publicThread(thread: RemoteThreadRow) {
 }
 
 async function handleRegister(request: Request, env: Env, threadId: string) {
-  // start-remote registers the current Codex thread. If the phone is already
+  // start-handoff registers the current Codex thread. If the phone is already
   // paired, this also switches that phone's active thread to the new one.
   const body = await readJsonBody<RegisterBody>(request);
   const ownerId = await requireOwnerId(request);
@@ -420,8 +420,8 @@ async function handleRegister(request: Request, env: Env, threadId: string) {
   const createdAt = nowIso();
 
   await env.DB.prepare(
-    `INSERT INTO remote_threads (
-      id, owner_id, cwd, title, handoff_summary, status, remote_enabled, pairing_code,
+    `INSERT INTO handoff_threads (
+      id, owner_id, cwd, title, handoff_summary, status, handoff_enabled, pairing_code,
       last_stop_at, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, 'enabled', 1, ?, NULL, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
@@ -430,13 +430,13 @@ async function handleRegister(request: Request, env: Env, threadId: string) {
       title = excluded.title,
       handoff_summary = excluded.handoff_summary,
       status = 'enabled',
-      remote_enabled = 1,
+      handoff_enabled = 1,
       pairing_code = excluded.pairing_code,
       updated_at = excluded.updated_at`,
   ).bind(threadId, ownerId, cwd, title, handoffSummary, pairingCode, createdAt, createdAt).run();
 
   await env.DB.prepare(
-    "UPDATE remote_threads SET pairing_code = NULL, updated_at = ? WHERE owner_id = ? AND id != ?",
+    "UPDATE handoff_threads SET pairing_code = NULL, updated_at = ? WHERE owner_id = ? AND id != ?",
   ).bind(createdAt, ownerId, threadId).run();
 
   if (existingBinding) {
@@ -445,7 +445,7 @@ async function handleRegister(request: Request, env: Env, threadId: string) {
     ).bind(threadId, createdAt, ownerId).run();
     const registeredThread = await findThread(env, threadId);
     if (registeredThread) {
-      await sendControlMessage(env, existingBinding.phone_number, remoteActivationMessage(registeredThread));
+      await sendControlMessage(env, existingBinding.phone_number, handoffActivationMessage(registeredThread));
     }
   }
 
@@ -476,16 +476,16 @@ async function findPhoneBindingForOwner(env: Env, ownerId: string) {
 }
 
 async function findPairingThread(env: Env, pairingCode: string) {
-  return env.DB.prepare("SELECT * FROM remote_threads WHERE pairing_code = ? AND remote_enabled = 1")
+  return env.DB.prepare("SELECT * FROM handoff_threads WHERE pairing_code = ? AND handoff_enabled = 1")
     .bind(pairingCode)
-    .first<RemoteThreadRow>();
+    .first<HandoffThreadRow>();
 }
 
 async function findExternalReply(env: Env, externalId: string) {
   // Sendblue may retry webhooks. The DO stores external ids in memory so we can
   // dedupe retries without writing message content to D1.
   const response = await relaySocket(env)
-    .fetch(new Request(`https://remote-control.internal/external-replies/${encodeURIComponent(externalId)}`));
+    .fetch(new Request(`https://imessage-handoff.internal/external-replies/${encodeURIComponent(externalId)}`));
   const body = await response.json() as { exists?: boolean };
   return body.exists ? { id: externalId } : null;
 }
@@ -499,14 +499,14 @@ async function findPhoneForThread(env: Env, threadId: string) {
 async function listEnabledThreadsForOwner(env: Env, ownerId: string) {
   const { results } = await env.DB.prepare(
     `SELECT *
-      FROM remote_threads
-      WHERE owner_id = ? AND remote_enabled = 1
+      FROM handoff_threads
+      WHERE owner_id = ? AND handoff_enabled = 1
       ORDER BY updated_at DESC, created_at DESC, id DESC`,
-  ).bind(ownerId).all<RemoteThreadRow>();
+  ).bind(ownerId).all<HandoffThreadRow>();
   return results;
 }
 
-function threadDisplayName(thread: RemoteThreadRow) {
+function threadDisplayName(thread: HandoffThreadRow) {
   if (thread.title?.trim()) {
     return thread.title.trim();
   }
@@ -514,11 +514,11 @@ function threadDisplayName(thread: RemoteThreadRow) {
   return cwdName || thread.id;
 }
 
-function quotedThreadDisplayName(thread: RemoteThreadRow) {
+function quotedThreadDisplayName(thread: HandoffThreadRow) {
   return `"${threadDisplayName(thread).replaceAll('"', "'")}"`;
 }
 
-function remoteActivationMessage(thread: RemoteThreadRow) {
+function handoffActivationMessage(thread: HandoffThreadRow) {
   // This is sent to iMessage when a paired user starts or switches a thread.
   // Keep it short because it appears as a normal chat message.
   const connectionLine = thread.title?.trim()
@@ -531,12 +531,12 @@ function remoteActivationMessage(thread: RemoteThreadRow) {
   ].filter(Boolean).join("\n\n");
 }
 
-function formatThreadList(threads: RemoteThreadRow[], activeThreadId: string | null) {
+function formatThreadList(threads: HandoffThreadRow[], activeThreadId: string | null) {
   if (threads.length === 0) {
-    return NO_REMOTE_THREADS_MESSAGE;
+    return NO_HANDOFF_THREADS_MESSAGE;
   }
   return [
-    "Remote threads:",
+    "iMessage Handoff threads:",
     "",
     ...threads.map((thread, index) => {
       const current = thread.id === activeThreadId ? " (current)" : "";
@@ -590,7 +590,7 @@ function sendblueMediaGroup(externalId: string | null, mediaUrl: string | null) 
   };
 }
 
-function combineReplyRows(rows: RemoteReplyRow[]) {
+function combineReplyRows(rows: HandoffReplyRow[]) {
   // A "reply" shown to Codex can be one text row or a media group. Combine rows
   // into the smallest prompt-shaped object the local Stop hook needs.
   const ordered = [...rows].sort((a, b) => (
@@ -609,10 +609,10 @@ function combineReplyRows(rows: RemoteReplyRow[]) {
   } : null;
 }
 
-function eligiblePendingReplies(rows: RemoteReplyRow[]) {
+function eligiblePendingReplies(rows: HandoffReplyRow[]) {
   // Text is eligible immediately. Media groups become eligible only after no
   // newer image has arrived for MEDIA_GROUP_QUIET_MS.
-  const groups = new Map<string, RemoteReplyRow[]>();
+  const groups = new Map<string, HandoffReplyRow[]>();
   const eligible: Array<ReturnType<typeof combineReplyRows>> = [];
   const cutoff = Date.now() - MEDIA_GROUP_QUIET_MS;
 
@@ -663,7 +663,7 @@ async function setActiveThreadForOwner(env: Env, ownerId: string, threadId: stri
 }
 
 async function touchThread(env: Env, threadId: string) {
-  await env.DB.prepare("UPDATE remote_threads SET updated_at = ? WHERE id = ?")
+  await env.DB.prepare("UPDATE handoff_threads SET updated_at = ? WHERE id = ?")
     .bind(nowIso(), threadId)
     .run();
 }
@@ -971,7 +971,7 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
   let notification: JsonRecord | null = null;
 
   await env.DB.prepare(
-    `UPDATE remote_threads
+    `UPDATE handoff_threads
       SET cwd = ?,
           status = ?,
           last_stop_at = ?,
@@ -999,7 +999,7 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
           error: errorMessage,
         };
         console.warn("Sendblue status notification failed.");
-        // Remote status publishing should never break the local Stop hook.
+        // Handoff status publishing should never break the local Stop hook.
       }
     } else {
       notification = {
@@ -1013,12 +1013,12 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
 }
 
 async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
-  // Claim returns exactly one remote prompt to local Codex and marks it applied.
+  // Claim returns exactly one iMessage prompt to local Codex and marks it applied.
   // The typing indicator is sent after claim to make the iMessage side feel live.
   const ownerId = await requireOwnerId(request);
   assertAuthorized(await findThread(env, threadId), ownerId);
   const claim = await relaySocket(env)
-    .fetch(new Request(`https://remote-control.internal/threads/${encodeURIComponent(threadId)}/replies/${encodeURIComponent(replyId)}/claim`, {
+    .fetch(new Request(`https://imessage-handoff.internal/threads/${encodeURIComponent(threadId)}/replies/${encodeURIComponent(replyId)}/claim`, {
       method: "POST",
     }));
   if (!claim.ok) {
@@ -1040,7 +1040,7 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
   return json(body);
 }
 
-async function insertRemoteReply(
+async function insertHandoffReply(
   env: Env,
   threadId: string,
   body: string,
@@ -1050,23 +1050,23 @@ async function insertRemoteReply(
 ) {
   // Inbound content always goes through the global DO so it stays out of D1.
   const response = await relaySocket(env)
-    .fetch(new Request(`https://remote-control.internal/threads/${encodeURIComponent(threadId)}/replies`, {
+    .fetch(new Request(`https://imessage-handoff.internal/threads/${encodeURIComponent(threadId)}/replies`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ body, externalId, status, mediaUrl }),
     }));
   const responseBody = await response.json() as { id?: string };
   if (!response.ok || !responseBody.id) {
-    throw new Error("Remote relay buffer did not accept reply.");
+    throw new Error("Handoff relay buffer did not accept reply.");
   }
   return responseBody.id;
 }
 
 function relaySocket(env: Env) {
-  if (!env.REMOTE_THREAD_SOCKET) {
-    throw Object.assign(new Error("Remote thread socket Durable Object is not configured."), { status: 500 });
+  if (!env.HANDOFF_SOCKET) {
+    throw Object.assign(new Error("Handoff socket Durable Object is not configured."), { status: 500 });
   }
-  return env.REMOTE_THREAD_SOCKET.get(env.REMOTE_THREAD_SOCKET.idFromName("global"));
+  return env.HANDOFF_SOCKET.get(env.HANDOFF_SOCKET.idFromName("global"));
 }
 
 async function handleSendblueWebhook(request: Request, env: Env, ctx?: ExecutionContext) {
@@ -1109,7 +1109,7 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     const service = await lookupPairingService(env, fromNumber);
     if (service === "SMS") {
       if (externalId) {
-        await insertRemoteReply(env, pairingThread.id, content ?? "", externalId, "applied");
+        await insertHandoffReply(env, pairingThread.id, content ?? "", externalId, "applied");
       }
       await sendControlMessage(env, fromNumber, IMESSAGE_REQUIRED_MESSAGE);
       return json({ ok: true, paired: false, unsupportedService: "SMS" });
@@ -1126,13 +1126,13 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
           updated_at = excluded.updated_at`,
     ).bind(fromNumber, pairingThread.owner_id, pairingThread.id, now, now).run();
     await env.DB.prepare(
-      "UPDATE remote_threads SET pairing_code = NULL, updated_at = ? WHERE id = ?",
+      "UPDATE handoff_threads SET pairing_code = NULL, updated_at = ? WHERE id = ?",
     ).bind(now, pairingThread.id).run();
     if (externalId) {
-      await insertRemoteReply(env, pairingThread.id, content ?? "", externalId, "applied");
+      await insertHandoffReply(env, pairingThread.id, content ?? "", externalId, "applied");
     }
     try {
-      await sendSendblueMessage(env, fromNumber, remoteActivationMessage(pairingThread));
+      await sendSendblueMessage(env, fromNumber, handoffActivationMessage(pairingThread));
     } catch {
       // Pairing should still succeed if the confirmation send is temporarily unavailable.
     }
@@ -1150,7 +1150,7 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     const threads = await listEnabledThreadsForOwner(env, binding.owner_id);
     await sendControlMessage(env, fromNumber, formatThreadList(threads, binding.active_thread_id));
     if (externalId && binding.active_thread_id) {
-      await insertRemoteReply(env, binding.active_thread_id, content ?? "", externalId, "applied");
+      await insertHandoffReply(env, binding.active_thread_id, content ?? "", externalId, "applied");
     }
     return json({ ok: true, command: "list", threadCount: threads.length });
   }
@@ -1163,31 +1163,31 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     if (!selected) {
       await sendControlMessage(env, fromNumber, SWITCH_RANGE_MESSAGE);
       if (externalId && binding.active_thread_id) {
-        await insertRemoteReply(env, binding.active_thread_id, content, externalId, "applied");
+        await insertHandoffReply(env, binding.active_thread_id, content, externalId, "applied");
       }
       return json({ ok: true, command: "switch", switched: false });
     }
     await setActiveThreadForOwner(env, binding.owner_id, selected.id);
     await sendControlMessage(env, fromNumber, `Switched to ${quotedThreadDisplayName(selected)}.`);
     if (externalId) {
-      await insertRemoteReply(env, selected.id, content, externalId, "applied");
+      await insertHandoffReply(env, selected.id, content, externalId, "applied");
     }
     return json({ ok: true, command: "switch", switched: true, threadId: selected.id });
   }
 
   if (!binding.active_thread_id) {
-    await sendControlMessage(env, fromNumber, NO_REMOTE_THREADS_MESSAGE);
+    await sendControlMessage(env, fromNumber, NO_HANDOFF_THREADS_MESSAGE);
     return json({ ok: true, ignored: true, noActiveThread: true });
   }
 
   const activeThread = await findThread(env, binding.active_thread_id);
-  if (!activeThread || activeThread.remote_enabled !== 1) {
+  if (!activeThread || activeThread.handoff_enabled !== 1) {
     await setActiveThreadForOwner(env, binding.owner_id, null);
-    await sendControlMessage(env, fromNumber, NO_REMOTE_THREADS_MESSAGE);
+    await sendControlMessage(env, fromNumber, NO_HANDOFF_THREADS_MESSAGE);
     return json({ ok: true, ignored: true, noActiveThread: true });
   }
 
-  const replyId = await insertRemoteReply(env, binding.active_thread_id, content ?? "", externalId, "pending", mediaUrl);
+  const replyId = await insertHandoffReply(env, binding.active_thread_id, content ?? "", externalId, "pending", mediaUrl);
   await touchThread(env, binding.active_thread_id);
   return json({ ok: true, replyId });
 }
@@ -1200,16 +1200,16 @@ async function handleGetThread(request: Request, env: Env, threadId: string) {
 }
 
 async function handleStopThread(request: Request, env: Env, threadId: string) {
-  // stop-remote disables the current thread and, if possible, moves the paired
+  // stop-handoff disables the current thread and, if possible, moves the paired
   // phone to the next most recently active thread.
   const ownerId = await requireOwnerId(request);
   const thread = assertAuthorized(await findThread(env, threadId), ownerId);
   const stoppedAt = nowIso();
 
   await env.DB.prepare(
-    `UPDATE remote_threads
+    `UPDATE handoff_threads
       SET status = 'stopped',
-          remote_enabled = 0,
+          handoff_enabled = 0,
           pairing_code = NULL,
           updated_at = ?
       WHERE id = ?`,
@@ -1225,7 +1225,7 @@ async function handleStopThread(request: Request, env: Env, threadId: string) {
     nextActiveThreadId = binding?.active_thread_id ?? null;
   }
 
-  return json({ ok: true, id: threadId, remoteEnabled: false, nextActiveThreadId });
+  return json({ ok: true, id: threadId, handoffEnabled: false, nextActiveThreadId });
 }
 
 async function handleThreadEvents(request: Request, env: Env, threadId: string) {
@@ -1240,12 +1240,12 @@ async function handleThreadEvents(request: Request, env: Env, threadId: string) 
   }
   const ownerId = await ownerIdFromToken(token);
   assertAuthorized(await findThread(env, threadId), ownerId);
-  if (!env.REMOTE_THREAD_SOCKET) {
-    return error(500, "Remote thread socket Durable Object is not configured.");
+  if (!env.HANDOFF_SOCKET) {
+    return error(500, "Handoff socket Durable Object is not configured.");
   }
 
-  const id = env.REMOTE_THREAD_SOCKET.idFromName("global");
-  return env.REMOTE_THREAD_SOCKET.get(id).fetch(request);
+  const id = env.HANDOFF_SOCKET.idFromName("global");
+  return env.HANDOFF_SOCKET.get(id).fetch(request);
 }
 
 export async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext) {
@@ -1259,7 +1259,7 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
 
   try {
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
-      return json({ ok: true, service: "remote-control" });
+      return json({ ok: true, service: "imessage-handoff" });
     }
 
     if (request.method === "POST" && url.pathname === "/webhooks/sendblue") {

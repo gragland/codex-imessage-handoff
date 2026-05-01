@@ -1,10 +1,10 @@
-# AGENTS: Remote Control
+# AGENTS: iMessage Handoff
 
-This is the standalone Remote Control repo, intended to become public before launch.
+This is the standalone iMessage Handoff repo, intended to become public before launch.
 
 ## Repo Shape
 
-- `remote-control`: installable Codex skill.
+- `imessage-handoff`: installable Codex skill.
 - `relay`: plain Cloudflare Worker relay deployed with Wrangler.
 - This repo is now the source of truth. Do not continue feature work in the old monorepo `apps/codex-message` directory unless explicitly asked.
 
@@ -13,13 +13,13 @@ This is the standalone Remote Control repo, intended to become public before lau
 - Do not use Alchemy or the old monorepo CI helpers here.
 - Deploy the relay manually with Wrangler from `relay`.
 - Secrets come from your shell/root env when running `wrangler secret put`; never commit populated `.env`, `.dev.vars`, or secret values.
-- If Cloudflare bindings change, run `pnpm --filter @gaberagland/remote-control-relay types` after the Wrangler config is valid.
+- If Cloudflare bindings change, run `pnpm --filter @gaberagland/imessage-handoff-relay types` after the Wrangler config is valid.
 - If `wrangler deploy --dry-run` unexpectedly bundles old TanStack/assets output, delete ignored generated files under `relay/.wrangler/` and `relay/dist/`; Wrangler may be following a stale local deploy redirect.
 
 ## Gotchas
 
-- The README install path uses `$skill-installer install https://github.com/gragland/remote-control/tree/main/remote-control`. The root package also keeps the installer-style `npx github:gragland/remote-control install` flow for compatibility. Runtime setup and config changes should happen through natural-language skill commands where possible.
-- The `remote-control` skill directory name and `scripts/publish-stop.js` hook path are part of the install/uninstall contract. If the GitHub repo name, skill directory name, installed skill path, or hook script name changes, update README/relay docs, `package.json` files, `bin/remote-control.mjs`, `remote-control/scripts/common.js` hook matching, tests, and any install/reset instructions together.
+- The README install path uses `$skill-installer install https://github.com/gragland/imessage-handoff/tree/main/imessage-handoff`. The root package also keeps the installer-style `npx github:gragland/imessage-handoff install` flow for compatibility. Runtime setup and config changes should happen through natural-language skill commands where possible.
+- The `imessage-handoff` skill directory name and `scripts/publish-stop.js` hook path are part of the install/uninstall contract. If the GitHub repo name, skill directory name, installed skill path, or hook script name changes, update README/relay docs, `package.json` files, `bin/imessage-handoff.mjs`, `imessage-handoff/scripts/common.js` hook matching, tests, and any install/reset instructions together.
 - The installer default relay is still a temporary hosted workers.dev URL until a final product domain is chosen.
 - Sendblue API calls should use `api.sendblue.com`, not the older `.co` host.
 - Keep this repo free of private monorepo dependencies such as `@vibe/ui`.
@@ -35,8 +35,8 @@ This is the standalone Remote Control repo, intended to become public before lau
 - Add the Cloudflare custom domain route to `relay/wrangler.jsonc`.
 - Deploy the relay with Wrangler after the domain is configured.
 - Update the Sendblue inbound webhook URL to the deployed `/webhooks/sendblue` endpoint.
-- Update `REMOTE_CONTROL_RELAY_URL` or the installer default relay URL to the final hosted URL.
+- Update `IMESSAGE_HANDOFF_RELAY_URL` or the installer default relay URL to the final hosted URL.
 - Keep the GitHub/skills install docs and installer-style compatibility path current before sharing publicly.
 - Confirm the GitHub repo visibility and README links are correct before sharing publicly.
 - Verify self-hosting from a fresh D1 database.
-- Run a fresh end-to-end smoke test from the GitHub/Skills install flows: install, start Remote Control, pair iMessage, send text, send inbound image, generate outbound image, use `threads`, switch threads, and `stop remote`.
+- Run a fresh end-to-end smoke test from the GitHub/Skills install flows: install, start iMessage Handoff, pair iMessage, send text, send inbound image, generate outbound image, use `threads`, switch threads, and `stop handoff`.

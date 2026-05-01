@@ -1,20 +1,20 @@
 {
-  "name": "@gaberagland/remote-control",
+  "name": "@gaberagland/imessage-handoff",
   "version": "0.1.0",
-  "description": "Install the Remote Control Codex skill for continuing Codex threads from iMessage.",
+  "description": "Install the iMessage Handoff Codex skill for continuing Codex threads from iMessage.",
   "type": "module",
   "bin": {
-    "remote-control": "./bin/remote-control.mjs"
+    "imessage-handoff": "./bin/imessage-handoff.mjs"
   },
   "files": [
     "bin/",
-    "remote-control/"
+    "imessage-handoff/"
   ],
   "packageManager": "pnpm@10.26.0",
   "scripts": {
-    "build": "pnpm --filter @gaberagland/remote-control-relay build",
-    "test": "pnpm --filter @gaberagland/remote-control-relay test && node --experimental-strip-types --test tests/skill/*.test.ts",
-    "typecheck": "pnpm --filter @gaberagland/remote-control-relay typecheck"
+    "build": "pnpm --filter @gaberagland/imessage-handoff-relay build",
+    "test": "pnpm --filter @gaberagland/imessage-handoff-relay test && node --experimental-strip-types --test tests/skill/*.test.ts",
+    "typecheck": "pnpm --filter @gaberagland/imessage-handoff-relay typecheck"
   },
   "engines": {
     "node": ">=20"

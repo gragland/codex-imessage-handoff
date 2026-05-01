@@ -6,14 +6,14 @@ const os = require("os");
 const path = require("path");
 const { apiFetch, readActiveThreads, readConfig, shellQuote, stateDir, writeActiveThreads } = require("./common.js");
 
-const LOCAL_ONLY_START = "**Remote message**";
+const LOCAL_ONLY_START = "**iMessage reply**";
 const WS_CONNECTING = 0;
 const WS_OPEN = 1;
 const WEBSOCKET_RECONNECT_BACKOFF_MS = [250, 500, 1000, 2000, 5000];
 
 // publish-stop is the global Codex Stop hook. After each assistant response it:
 // 1. publishes the assistant result to Sendblue,
-// 2. waits for a remote iMessage reply, and
+// 2. waits for an iMessage reply, and
 // 3. blocks the next Codex turn with that reply as if the user typed it locally.
 
 async function readStdinJson() {
@@ -36,18 +36,18 @@ async function readStdinJson() {
 
 function sanitizeAssistantMessage(value) {
   // Codex's previous response may include the local-only display block from a
-  // remote prompt. Strip that before sending the assistant answer back to iMessage.
+  // iMessage prompt. Strip that before sending the assistant answer back to iMessage.
   if (typeof value !== "string") {
     return null;
   }
 
   const text = value
-    .replace(/^(?:>\s*)?(?:🟢\s*)?(?:\*\*Remote message\*\*|Remote message:)\s*\n(?:>.*(?:\n|$))*\s*/gm, "")
+    .replace(/^(?:>\s*)?(?:🟢\s*)?(?:\*\*iMessage reply\*\*|iMessage reply:)\s*\n(?:>.*(?:\n|$))*\s*/gm, "")
     .trim();
   return text || null;
 }
 
-function quoteRemoteLine(line, index) {
+function quoteHandoffLine(line, index) {
   const body = line || "\u00a0";
   return `> ${body}`;
 }
@@ -84,8 +84,8 @@ function extensionForMedia(url, contentType) {
 }
 
 async function downloadBinary(url) {
-  if (process.env.REMOTE_CONTROL_MOCK_FILE) {
-    const mock = JSON.parse(readFileSync(process.env.REMOTE_CONTROL_MOCK_FILE, "utf8"));
+  if (process.env.IMESSAGE_HANDOFF_MOCK_FILE) {
+    const mock = JSON.parse(readFileSync(process.env.IMESSAGE_HANDOFF_MOCK_FILE, "utf8"));
     const media = mock.mediaResponses && mock.mediaResponses[url];
     if (!media) {
       throw new Error("No mock media response for " + url);
@@ -133,7 +133,7 @@ async function downloadBinary(url) {
 
 async function downloadReplyMedia(codexThreadId, reply) {
   // The relay passes media URLs. The local hook downloads them into skill state
-  // so Codex can inspect local files instead of remote URLs.
+  // so Codex can inspect local files instead of message-provider URLs.
   const media = Array.isArray(reply.media) ? reply.media : [];
   if (media.length === 0) {
     return [];
@@ -179,11 +179,11 @@ function threadEventsUrl(config, codexThreadId) {
 function readMockWebSocketEvent(config, codexThreadId, payload) {
   // Unit tests simulate WebSocket events through the same mock file used for
   // HTTP calls. Production never enters this branch.
-  if (!process.env.REMOTE_CONTROL_MOCK_FILE) {
+  if (!process.env.IMESSAGE_HANDOFF_MOCK_FILE) {
     return undefined;
   }
 
-  const mockPath = process.env.REMOTE_CONTROL_MOCK_FILE;
+  const mockPath = process.env.IMESSAGE_HANDOFF_MOCK_FILE;
   const mock = existsSync(mockPath) ? JSON.parse(readFileSync(mockPath, "utf8")) : {};
   const pathName = `/threads/${codexThreadId}/events`;
   mock.websocketCalls = Array.isArray(mock.websocketCalls) ? mock.websocketCalls : [];
@@ -270,12 +270,12 @@ function codexHome() {
 }
 
 function globalStatePath() {
-  return process.env.REMOTE_CONTROL_GLOBAL_STATE_PATH || path.join(codexHome(), ".codex-global-state.json");
+  return process.env.IMESSAGE_HANDOFF_GLOBAL_STATE_PATH || path.join(codexHome(), ".codex-global-state.json");
 }
 
 function hasQueuedLocalFollowUp(codexThreadId) {
-  // If the user typed locally while the Stop hook was waiting remotely, local
-  // input should take over and remote control should stop for this thread.
+  // If the user typed locally while the Stop hook was waiting for iMessage, local
+  // input should take over and iMessage handoff should stop for this thread.
   try {
     const raw = readFileSync(globalStatePath(), "utf8");
     const state = JSON.parse(raw);
@@ -290,8 +290,8 @@ function hasQueuedLocalFollowUp(codexThreadId) {
 function findSessionLog(codexThreadId, thread) {
   // Generated images are recorded in Codex session logs. Find the current log so
   // the hook can forward newly generated images to iMessage.
-  if (process.env.REMOTE_CONTROL_SESSION_LOG) {
-    return process.env.REMOTE_CONTROL_SESSION_LOG;
+  if (process.env.IMESSAGE_HANDOFF_SESSION_LOG) {
+    return process.env.IMESSAGE_HANDOFF_SESSION_LOG;
   }
   if (thread.sessionLogPath && existsSync(thread.sessionLogPath)) {
     return thread.sessionLogPath;
@@ -392,7 +392,7 @@ function readGeneratedImages(codexThreadId, thread) {
 }
 
 async function claimReplyById(config, codexThreadId, replyId) {
-  // Claiming is the moment the relay hands a remote prompt to local Codex and
+  // Claiming is the moment the relay hands an iMessage prompt to local Codex and
   // scrubs it from the relay buffer.
   const encodedThreadId = encodeURIComponent(codexThreadId);
   const claimed = await apiFetch(
@@ -404,22 +404,22 @@ async function claimReplyById(config, codexThreadId, replyId) {
   return claimed.ok && claimed.reply ? claimed.reply : null;
 }
 
-async function stopRemoteThread(config, codexThreadId) {
+async function stopHandoffThread(config, codexThreadId) {
   try {
     await apiFetch(config, `/threads/${encodeURIComponent(codexThreadId)}/stop`, { method: "POST" });
   } catch {
-    // Local takeover should still release Codex even if the remote status call is temporarily unavailable.
+    // Local takeover should still release Codex even if the handoff status call is temporarily unavailable.
   }
 }
 
-async function disableRemoteSilently(config, codexThreadId, active) {
-  await stopRemoteThread(config, codexThreadId);
+async function disableHandoffSilently(config, codexThreadId, active) {
+  await stopHandoffThread(config, codexThreadId);
   delete active.threads[codexThreadId];
   writeActiveThreads(active);
 }
 
-async function disableRemoteForLocalTakeover(config, codexThreadId, active) {
-  await disableRemoteSilently(config, codexThreadId, active);
+async function disableHandoffForLocalTakeover(config, codexThreadId, active) {
+  await disableHandoffSilently(config, codexThreadId, active);
   return { localTakeover: true };
 }
 
@@ -440,7 +440,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
       return null;
     }
     if (hasQueuedLocalFollowUp(codexThreadId)) {
-      return disableRemoteForLocalTakeover(config, codexThreadId, active);
+      return disableHandoffForLocalTakeover(config, codexThreadId, active);
     }
 
     const socketWait = startWebSocketWait(config, codexThreadId);
@@ -465,7 +465,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
           return null;
         }
         if (hasQueuedLocalFollowUp(codexThreadId)) {
-          return disableRemoteForLocalTakeover(config, codexThreadId, latestActive);
+          return disableHandoffForLocalTakeover(config, codexThreadId, latestActive);
         }
         await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
       }
@@ -489,7 +489,7 @@ async function waitForReplyByWebSocket(config, codexThreadId) {
         return null;
       }
       if (hasQueuedLocalFollowUp(codexThreadId)) {
-        return disableRemoteForLocalTakeover(config, codexThreadId, active);
+        return disableHandoffForLocalTakeover(config, codexThreadId, active);
       }
       await sleep(Math.min(localFollowUpCheckMs, Math.max(0, deadline - Date.now())));
     }
@@ -530,13 +530,13 @@ function attachmentLines(paths) {
 function continuationForReply(codexThreadId, reply) {
   // This text becomes the next local Codex user message. The visible block gives
   // the local thread context, while the "User message to answer" section is the
-  // actual remote prompt Codex should respond to.
+  // actual iMessage prompt Codex should respond to.
   const body = String(reply.body || "");
   const lines = body ? body.split(/\r?\n/) : [];
-  const visibleRemoteMessageLines = lines
-    .map(quoteRemoteLine)
-    .concat(attachmentLines(reply.attachmentPaths).map(quoteRemoteLine));
-  const visibleRemoteMessage = visibleRemoteMessageLines.join("\n");
+  const visibleHandoffMessageLines = lines
+    .map(quoteHandoffLine)
+    .concat(attachmentLines(reply.attachmentPaths).map(quoteHandoffLine));
+  const visibleHandoffMessage = visibleHandoffMessageLines.join("\n");
   const userMessageParts = [
     body,
     attachmentLines(reply.attachmentPaths).join("\n"),
@@ -552,18 +552,18 @@ function continuationForReply(codexThreadId, reply) {
   ].join(" ");
 
   return [
-    "Treat the following remote message exactly as if the user typed it directly in this chat.",
+    "Treat the following iMessage reply exactly as if the user typed it directly in this chat.",
     "Answer normally and focus on the user's request; delivery details are not relevant unless the user asks about them.",
     "If the work may take more than a few minutes, send the iMessage user a very brief progress update every few minutes by running this command with a one- or two-sentence update:",
     updateCommand,
     "Use progress updates sparingly; they are only to reassure the user during longer tasks.",
     "Start your assistant response with the local display block below exactly as shown, then a blank line, then the substantive answer, code changes, or work summary you would normally give the user.",
     "The blockquote is visible in the local Codex thread; the Stop hook removes this leading display block before sending the answer back over iMessage.",
-    "Do not otherwise repeat or paraphrase the remote message.",
+    "Do not otherwise repeat or paraphrase the iMessage reply.",
     "",
     "Local display block to render:",
     LOCAL_ONLY_START,
-    visibleRemoteMessage,
+    visibleHandoffMessage,
     "",
     "User message to answer:",
     userMessageParts.join("\n\n"),
@@ -572,16 +572,16 @@ function continuationForReply(codexThreadId, reply) {
 
 function continuationForLocalTakeover() {
   return [
-    "Remote Control was active, but the user has sent a message locally in Codex.",
+    "iMessage Handoff was active, but the user has sent a message locally in Codex.",
     "Start your assistant response with this friendly note, then a blank line, then continue normally with the user's local message:",
-    "\"Got it - I'll turn off Remote Control since you're back here in Codex.\"",
+    "\"Got it - I'll turn off iMessage Handoff since you're back here in Codex.\"",
     "Keep the note user-facing and avoid implementation details unless the user asks about them.",
   ].join("\n");
 }
 
 async function main() {
 try {
-  // Codex passes Stop hook context through stdin. If this is not an active remote
+  // Codex passes Stop hook context through stdin. If this is not an active handoff
   // thread, exit silently so normal Codex usage is unaffected.
   const input = await readStdinJson();
   const codexThreadId = input.session_id;
@@ -597,7 +597,7 @@ try {
     process.exit(0);
   }
   if (hasQueuedLocalFollowUp(codexThreadId)) {
-    await disableRemoteSilently(config, codexThreadId, active);
+    await disableHandoffSilently(config, codexThreadId, active);
     console.log(JSON.stringify({
       decision: "block",
       reason: continuationForLocalTakeover(),
@@ -637,7 +637,7 @@ try {
     process.exit(0);
   }
   if (hasQueuedLocalFollowUp(codexThreadId)) {
-    await disableRemoteSilently(config, codexThreadId, latestActive);
+    await disableHandoffSilently(config, codexThreadId, latestActive);
     console.log(JSON.stringify({
       decision: "block",
       reason: continuationForLocalTakeover(),

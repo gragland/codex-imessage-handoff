@@ -10,7 +10,7 @@ const {
   ensureStateDirs,
   installStopHook,
   readJson,
-  remoteControlHookStatus,
+  imessageHandoffHookStatus,
   skillDir,
   uninstallStopHook,
   writeJson,
@@ -103,7 +103,7 @@ async function main() {
   if (command === "hook-status") {
     console.log(JSON.stringify({
       ok: true,
-      ...remoteControlHookStatus(codexHome(), skillDir),
+      ...imessageHandoffHookStatus(codexHome(), skillDir),
     }, null, 2));
     return;
   }
@@ -117,7 +117,7 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       hookSetupChanged: codexHooksChanged || stopHookChanged,
-      ...remoteControlHookStatus(home, skillDir),
+      ...imessageHandoffHookStatus(home, skillDir),
     }, null, 2));
     return;
   }

@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RemoteThreadSocket, handleRequest } from "../src/worker.ts";
-import type { Env, PhoneBindingRow, RemoteReplyRow, RemoteThreadRow } from "../src/types.ts";
+import { HandoffSocket, handleRequest } from "../src/worker.ts";
+import type { Env, PhoneBindingRow, HandoffReplyRow, HandoffThreadRow } from "../src/types.ts";
 
 // The relay tests run the Worker directly in Node. These fakes keep the tests
 // fast while still exercising the same request handlers that Wrangler serves.
 async function ownerIdForToken(token: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`remote-control:${token}`));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`imessage-handoff:${token}`));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 const DEV_OWNER_ID = await ownerIdForToken("dev-token");
-const relayBuffers = new WeakMap<Env, RemoteThreadSocket>();
+const relayBuffers = new WeakMap<Env, HandoffSocket>();
 
 function outboundContents(calls: Array<Record<string, unknown> | null>) {
   return calls
@@ -51,7 +51,7 @@ class FakeD1Database {
   // This is a tiny in-memory stand-in for the specific D1 queries the Worker
   // issues. When a production query changes, this fake usually needs the same
   // behavior added so tests continue to mirror the deployed relay.
-  threads = new Map<string, RemoteThreadRow>();
+  threads = new Map<string, HandoffThreadRow>();
   phoneBindings = new Map<string, PhoneBindingRow>();
 
   prepare(sql: string) {
@@ -59,7 +59,7 @@ class FakeD1Database {
   }
 
   run(sql: string, values: unknown[]) {
-    if (sql.includes("INSERT INTO remote_threads")) {
+    if (sql.includes("INSERT INTO handoff_threads")) {
       const [id, ownerId, cwd, title, handoffSummary, pairingCode, createdAt, updatedAt] = values as string[];
       const existing = this.threads.get(id);
       this.threads.set(id, {
@@ -69,7 +69,7 @@ class FakeD1Database {
         title: title ?? null,
         handoff_summary: handoffSummary ?? null,
         status: "enabled",
-        remote_enabled: 1,
+        handoff_enabled: 1,
         pairing_code: pairingCode,
         last_stop_at: existing?.last_stop_at ?? null,
         created_at: existing?.created_at ?? createdAt,
@@ -89,7 +89,7 @@ class FakeD1Database {
       return { meta: { changes: 1 } };
     }
 
-    if (sql.includes("UPDATE remote_threads") && sql.includes("pairing_code = NULL") && !sql.includes("remote_enabled = 0")) {
+    if (sql.includes("UPDATE handoff_threads") && sql.includes("pairing_code = NULL") && !sql.includes("handoff_enabled = 0")) {
       if (sql.includes("WHERE owner_id = ?")) {
         const [updatedAt, ownerId, excludedId] = values as string[];
         for (const thread of this.threads.values()) {
@@ -110,20 +110,20 @@ class FakeD1Database {
       return { meta: { changes: 1 } };
     }
 
-    if (sql.includes("UPDATE remote_threads") && sql.includes("remote_enabled = 0")) {
+    if (sql.includes("UPDATE handoff_threads") && sql.includes("handoff_enabled = 0")) {
       const [updatedAt, id] = values as string[];
       const thread = this.threads.get(id);
       if (!thread) {
         return { meta: { changes: 0 } };
       }
       thread.status = "stopped";
-      thread.remote_enabled = 0;
+      thread.handoff_enabled = 0;
       thread.pairing_code = null;
       thread.updated_at = updatedAt;
       return { meta: { changes: 1 } };
     }
 
-    if (sql.includes("UPDATE remote_threads SET updated_at = ? WHERE id = ?")) {
+    if (sql.includes("UPDATE handoff_threads SET updated_at = ? WHERE id = ?")) {
       const [updatedAt, id] = values as string[];
       const thread = this.threads.get(id);
       if (!thread) {
@@ -133,7 +133,7 @@ class FakeD1Database {
       return { meta: { changes: 1 } };
     }
 
-    if (sql.includes("UPDATE remote_threads")) {
+    if (sql.includes("UPDATE handoff_threads")) {
       const [cwd, status, lastStopAt, updatedAt, id] = values as Array<string | null>;
       const thread = this.threads.get(String(id));
       if (!thread) {
@@ -187,12 +187,12 @@ class FakeD1Database {
       return ([...this.phoneBindings.values()].find((binding) => binding.owner_id === ownerId) ?? null) as T | null;
     }
 
-    if (sql.includes("SELECT * FROM remote_threads WHERE pairing_code = ?")) {
+    if (sql.includes("SELECT * FROM handoff_threads WHERE pairing_code = ?")) {
       const pairingCode = String(values[0]);
-      return ([...this.threads.values()].find((thread) => thread.pairing_code === pairingCode && thread.remote_enabled === 1) ?? null) as T | null;
+      return ([...this.threads.values()].find((thread) => thread.pairing_code === pairingCode && thread.handoff_enabled === 1) ?? null) as T | null;
     }
 
-    if (sql.includes("SELECT * FROM remote_threads")) {
+    if (sql.includes("SELECT * FROM handoff_threads")) {
       return (this.threads.get(String(values[0])) ?? null) as T | null;
     }
 
@@ -205,10 +205,10 @@ class FakeD1Database {
   }
 
   all<T>(sql: string, values: unknown[]) {
-    if (sql.includes("FROM remote_threads") && sql.includes("remote_enabled = 1")) {
+    if (sql.includes("FROM handoff_threads") && sql.includes("handoff_enabled = 1")) {
       const ownerId = String(values[0]);
       const results = [...this.threads.values()]
-        .filter((thread) => thread.owner_id === ownerId && thread.remote_enabled === 1)
+        .filter((thread) => thread.owner_id === ownerId && thread.handoff_enabled === 1)
         .sort((a, b) => (
           b.updated_at.localeCompare(a.updated_at)
           || b.created_at.localeCompare(a.created_at)
@@ -236,13 +236,13 @@ function env() {
 }
 
 function attachRelayBuffer(testEnv: Env) {
-  const relay = new RemoteThreadSocket({
+  const relay = new HandoffSocket({
     acceptWebSocket() {},
     getWebSockets() {
       return [];
     },
   } as unknown as DurableObjectState);
-  testEnv.REMOTE_THREAD_SOCKET = {
+  testEnv.HANDOFF_SOCKET = {
     idFromName(name: string) {
       return { name } as unknown as DurableObjectId;
     },
@@ -258,7 +258,7 @@ function attachRelayBuffer(testEnv: Env) {
 }
 
 function req(path: string, init: RequestInit = {}) {
-  return new Request(`https://remote-control.test${path}`, {
+  return new Request(`https://imessage-handoff.test${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
@@ -274,7 +274,7 @@ async function json(response: Response) {
 function relayReplies(testEnv: Env) {
   const relay = relayBuffers.get(testEnv);
   assert.ok(relay, "test env has a relay buffer");
-  return [...(relay as unknown as { replies: Map<string, RemoteReplyRow> }).replies.values()];
+  return [...(relay as unknown as { replies: Map<string, HandoffReplyRow> }).replies.values()];
 }
 
 function pendingReplies(testEnv: Env, threadId?: string) {
@@ -290,7 +290,7 @@ async function register(testEnv: Env, overrides: Record<string, unknown> = {}) {
   const response = await handleRequest(req(`/threads/${threadId}`, {
     method: "POST",
     headers: { authorization: "Bearer dev-token" },
-    body: JSON.stringify({ cwd: "/tmp/project", title: "Remote test", ...overrides }),
+    body: JSON.stringify({ cwd: "/tmp/project", title: "iMessage test", ...overrides }),
   }), testEnv);
   assert.equal(response.status, 200);
   const body = await json(response);
@@ -338,10 +338,10 @@ test("creates install tokens", async () => {
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(typeof body.token, "string");
-  assert.match(String(body.token), /^rc_[a-f0-9]{64}$/);
+  assert.match(String(body.token), /^ih_[a-f0-9]{64}$/);
 });
 
-test("creates and upserts a remote thread with an explicit id", async () => {
+test("creates and upserts a handoff thread with an explicit id", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const upsert = await handleRequest(req(`/threads/${threadId}`, {
@@ -349,8 +349,8 @@ test("creates and upserts a remote thread with an explicit id", async () => {
     headers: { authorization: "Bearer dev-token" },
     body: JSON.stringify({
       cwd: "/tmp/project-renamed",
-      title: "Remote test updated",
-      handoffSummary: "You were reviewing remote handoff copy.",
+      title: "iMessage test updated",
+      handoffSummary: "You were reviewing iMessage handoff copy.",
     }),
   }), testEnv);
   assert.equal(upsert.status, 200);
@@ -366,17 +366,17 @@ test("creates and upserts a remote thread with an explicit id", async () => {
   assert.equal(typeof body.pairingCode, "string");
   assert.equal(String(body.pairingCode).length, 6);
   assert.equal(body.cwd, "/tmp/project-renamed");
-  assert.equal(body.title, "Remote test updated");
-  assert.equal(body.handoffSummary, "You were reviewing remote handoff copy.");
+  assert.equal(body.title, "iMessage test updated");
+  assert.equal(body.handoffSummary, "You were reviewing iMessage handoff copy.");
   assert.equal(body.status, "enabled");
-  assert.equal(body.remoteEnabled, true);
+  assert.equal(body.handoffEnabled, true);
 });
 
 test("proxies authorized thread websocket upgrades to the Durable Object", async () => {
   const testEnv: Env = env();
   const threadId = await register(testEnv);
   const calls: Array<{ name: string; url: string }> = [];
-  testEnv.REMOTE_THREAD_SOCKET = {
+  testEnv.HANDOFF_SOCKET = {
     idFromName(name: string) {
       return { name } as unknown as DurableObjectId;
     },
@@ -398,7 +398,7 @@ test("proxies authorized thread websocket upgrades to the Durable Object", async
   assert.equal(response.status, 200);
   assert.deepEqual(calls, [{
     name: "global",
-    url: `https://remote-control.test/threads/${threadId}/events?token=dev-token`,
+    url: `https://imessage-handoff.test/threads/${threadId}/events?token=dev-token`,
   }]);
 });
 
@@ -415,7 +415,7 @@ test("rejects unauthorized thread websocket upgrades", async () => {
 
 test("relay buffer notifies connected thread websockets when replies arrive", async () => {
   const sent: string[] = [];
-  const relay = new RemoteThreadSocket({
+  const relay = new HandoffSocket({
     acceptWebSocket() {},
     getWebSockets(tag?: string) {
       assert.equal(tag, "thread-test-1");
@@ -427,7 +427,7 @@ test("relay buffer notifies connected thread websockets when replies arrive", as
     },
   } as unknown as DurableObjectState);
 
-  const response = await relay.fetch(new Request("https://remote-control.internal/threads/thread-test-1/replies", {
+  const response = await relay.fetch(new Request("https://imessage-handoff.internal/threads/thread-test-1/replies", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ body: "hello", externalId: "msg_notify", status: "pending" }),
@@ -442,14 +442,14 @@ test("relay buffer notifies connected thread websockets when replies arrive", as
 });
 
 test("relay buffer sends queued replies to a socket on connect", async () => {
-  const relay = new RemoteThreadSocket({
+  const relay = new HandoffSocket({
     acceptWebSocket() {},
     getWebSockets() {
       return [];
     },
   } as unknown as DurableObjectState);
 
-  await relay.fetch(new Request("https://remote-control.internal/threads/thread-test-1/replies", {
+  await relay.fetch(new Request("https://imessage-handoff.internal/threads/thread-test-1/replies", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ body: "queued", externalId: "msg_queued", status: "pending" }),
@@ -479,7 +479,7 @@ test("relay buffer waits for media group quiet window before websocket notificat
     return 1 as unknown as ReturnType<typeof setTimeout>;
   }) as unknown as typeof setTimeout;
   const sent: string[] = [];
-  const relay = new RemoteThreadSocket({
+  const relay = new HandoffSocket({
     acceptWebSocket() {},
     getWebSockets(tag?: string) {
       assert.equal(tag, "thread-test-1");
@@ -492,7 +492,7 @@ test("relay buffer waits for media group quiet window before websocket notificat
   } as unknown as DurableObjectState);
 
   try {
-    await relay.fetch(new Request("https://remote-control.internal/threads/thread-test-1/replies", {
+    await relay.fetch(new Request("https://imessage-handoff.internal/threads/thread-test-1/replies", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -505,7 +505,7 @@ test("relay buffer waits for media group quiet window before websocket notificat
 
     assert.equal(sent.length, 0);
     assert.equal(timers.length, 1);
-    for (const reply of (relay as unknown as { replies: Map<string, RemoteReplyRow> }).replies.values()) {
+    for (const reply of (relay as unknown as { replies: Map<string, HandoffReplyRow> }).replies.values()) {
       reply.created_at = "2026-04-25T18:20:00.000Z";
     }
     timers[0]?.();
@@ -560,7 +560,7 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
     }, null, {
       number: "+15551234567",
       from_number: "+12344198201",
-      content: 'You’re connected to "Remote test" on Codex.\n\nYou were deciding what the first playable prototype should include.\n\nWhat do you want to do next?',
+      content: 'You’re connected to "iMessage test" on Codex.\n\nYou were deciding what the first playable prototype should include.\n\nWhat do you want to do next?',
     }]);
 
     assert.deepEqual(pendingReplies(testEnv, threadId), []);
@@ -592,7 +592,7 @@ test("activation message omits the summary paragraph when no summary exists", as
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(outboundContents(calls), [
-    'You’re connected to "Remote test" on Codex.\n\nWhat do you want to do next?',
+    'You’re connected to "iMessage test" on Codex.\n\nWhat do you want to do next?',
   ]);
 });
 
@@ -661,7 +661,7 @@ test("pairing rejects phone numbers that do not support iMessage", async () => {
     }, null, {
       number: "+15551234567",
       from_number: "+12344198201",
-      content: "Remote Control only supports phone numbers that use iMessage for now.",
+      content: "iMessage Handoff only supports phone numbers that use iMessage for now.",
     }]);
     assert.deepEqual(pendingReplies(testEnv, threadId), []);
   } finally {
@@ -829,7 +829,7 @@ test("starting another thread for a paired user makes it active", async () => {
       body: JSON.stringify({
         cwd: "/tmp/project",
         title: "Second",
-        handoffSummary: "You were choosing the next remote task.",
+        handoffSummary: "You were choosing the next iMessage task.",
       }),
     }), testEnv);
     assert.equal(startSecond.status, 200);
@@ -841,7 +841,7 @@ test("starting another thread for a paired user makes it active", async () => {
   assert.equal(secondBody.paired, true);
   assert.equal(secondBody.pairingCode, null);
   assert.equal(secondBody.skipNextStatusSend, true);
-  assert.deepEqual(outboundContents(calls), ['You’re connected to "Second" on Codex.\n\nYou were choosing the next remote task.\n\nWhat do you want to do next?']);
+  assert.deepEqual(outboundContents(calls), ['You’re connected to "Second" on Codex.\n\nYou were choosing the next iMessage task.\n\nWhat do you want to do next?']);
   assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, secondThreadId);
   assert.equal(db.threads.get(secondThreadId)?.pairing_code, null);
 
@@ -876,7 +876,7 @@ test("list command returns numbered enabled threads without status labels", asyn
     const response = await handleRequest(sendblueWebhook(inboundMessage("list", "list_msg_1")), testEnv);
     assert.equal(response.status, 200);
     assert.deepEqual(outboundContents(calls), [
-      "Remote threads:\n\n1. Second (current)\n2. Remote test\n\nReply with a number to switch.",
+      "iMessage Handoff threads:\n\n1. Second (current)\n2. iMessage test\n\nReply with a number to switch.",
     ]);
     assert.doesNotMatch(String(calls[0]?.content), /enabled|stopped/i);
     const pending = pendingReplies(testEnv);
@@ -886,12 +886,12 @@ test("list command returns numbered enabled threads without status labels", asyn
   }
 });
 
-test("list command reports when the paired phone has no remote threads", async () => {
+test("list command reports when the paired phone has no iMessage handoff threads", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
   await handleRequest(sendblueWebhook(inboundMessage(String(db.threads.get(threadId)?.pairing_code), "pair_msg_1")), testEnv);
-  db.threads.get(threadId)!.remote_enabled = 0;
+  db.threads.get(threadId)!.handoff_enabled = 0;
   db.phoneBindings.get("+15551234567")!.active_thread_id = null;
 
   const originalFetch = globalThis.fetch;
@@ -903,7 +903,7 @@ test("list command reports when the paired phone has no remote threads", async (
   try {
     const response = await handleRequest(sendblueWebhook(inboundMessage("list", "list_msg_empty")), testEnv);
     assert.equal(response.status, 200);
-    assert.deepEqual(outboundContents(calls), ["You have no remote codex threads"]);
+    assert.deepEqual(outboundContents(calls), ["You have no iMessage handoff threads"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -914,7 +914,7 @@ test("normal text reports when there is no active thread to forward to", async (
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
   await handleRequest(sendblueWebhook(inboundMessage(String(db.threads.get(threadId)?.pairing_code), "pair_msg_1")), testEnv);
-  db.threads.get(threadId)!.remote_enabled = 0;
+  db.threads.get(threadId)!.handoff_enabled = 0;
   db.phoneBindings.get("+15551234567")!.active_thread_id = null;
 
   const originalFetch = globalThis.fetch;
@@ -926,7 +926,7 @@ test("normal text reports when there is no active thread to forward to", async (
   try {
     const response = await handleRequest(sendblueWebhook(inboundMessage("What is 2 + 2?", "msg_no_thread")), testEnv);
     assert.equal(response.status, 200);
-    assert.deepEqual(outboundContents(calls), ["You have no remote codex threads"]);
+    assert.deepEqual(outboundContents(calls), ["You have no iMessage handoff threads"]);
     const pending = pendingReplies(testEnv);
     assert.deepEqual(pending, []);
   } finally {
@@ -960,7 +960,7 @@ test("number command switches the active thread using the current list order", a
     const response = await handleRequest(sendblueWebhook(inboundMessage("2", "switch_msg_1")), testEnv);
     assert.equal(response.status, 200);
     assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, firstThreadId);
-    assert.deepEqual(outboundContents(calls), ['Switched to "Remote test".']);
+    assert.deepEqual(outboundContents(calls), ['Switched to "iMessage test".']);
 
     await handleRequest(sendblueWebhook(inboundMessage("Now use the first thread", "msg_2")), testEnv);
     assert.equal(pendingReplies(testEnv, firstThreadId).length, 1);
@@ -987,7 +987,7 @@ test("out-of-range number command does not change the active thread or enqueue a
     const response = await handleRequest(sendblueWebhook(inboundMessage("2", "switch_msg_bad")), testEnv);
     assert.equal(response.status, 200);
     assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, threadId);
-    assert.deepEqual(outboundContents(calls), ["Text threads to see active remote threads."]);
+    assert.deepEqual(outboundContents(calls), ["Text threads to see active iMessage handoff threads."]);
     assert.deepEqual(pendingReplies(testEnv, threadId), []);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1024,12 +1024,12 @@ test("stopping a thread disables it and switches to the newest remaining thread"
     }), testEnv);
     assert.equal(stop.status, 200);
     assert.equal((await json(stop)).nextActiveThreadId, firstThreadId);
-    assert.equal(db.threads.get(secondThreadId)?.remote_enabled, 0);
+    assert.equal(db.threads.get(secondThreadId)?.handoff_enabled, 0);
     assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, firstThreadId);
 
     await handleRequest(sendblueWebhook(inboundMessage("list", "list_after_stop")), testEnv);
     assert.deepEqual(outboundContents(calls), [
-      "Remote threads:\n\n1. Remote test (current)\n\nReply with a number to switch.",
+      "iMessage Handoff threads:\n\n1. iMessage test (current)\n\nReply with a number to switch.",
     ]);
   } finally {
     globalThis.fetch = originalFetch;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const { apiFetch, readConfig } = require("./common.js");
 
-// Called manually by Codex during longer remote tasks to reassure the iMessage
+// Called manually by Codex during longer iMessage handoff tasks to reassure the iMessage
 // user that work is still moving. It uses the same status endpoint as the Stop
 // hook, but marks the thread as "working" instead of "stopped".
 

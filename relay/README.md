@@ -1,6 +1,6 @@
-# Remote Control Relay
+# iMessage Handoff Relay
 
-This package contains the plain Cloudflare Worker relay for Remote Control. It intentionally avoids a web framework so the hosted code path is small and easy to audit.
+This package contains the plain Cloudflare Worker relay for iMessage Handoff. It intentionally avoids a web framework so the hosted code path is small and easy to audit.
 
 ## Self-Hosting
 
@@ -22,7 +22,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 3. Create a Cloudflare D1 database for routing metadata.
 
    ```bash
-   pnpm exec wrangler d1 create remote-control
+   pnpm exec wrangler d1 create imessage-handoff
    ```
 
 4. Copy the returned `database_id` into `wrangler.jsonc`.
@@ -32,7 +32,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 6. Apply metadata migrations.
 
    ```bash
-   pnpm exec wrangler d1 migrations apply remote-control --remote
+   pnpm exec wrangler d1 migrations apply imessage-handoff --remote
    ```
 
 7. Set Sendblue secrets.
@@ -60,10 +60,10 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 10. Install and configure the skill against your relay.
 
    ```bash
-   $skill-installer install https://github.com/gragland/remote-control/tree/main/remote-control
+   $skill-installer install https://github.com/gragland/imessage-handoff/tree/main/imessage-handoff
    ```
 
-   Then ask Codex: `Remote Control use my self-hosted relay at https://<your-worker-url>`
+   Then ask Codex: `iMessage Handoff use my self-hosted relay at https://<your-worker-url>`
 
 ## Configuration
 
@@ -81,7 +81,7 @@ After choosing a domain, add a Cloudflare custom domain route to `wrangler.jsonc
 
 ```jsonc
 "routes": [
-  { "pattern": "remote-control.example.com", "custom_domain": true }
+  { "pattern": "imessage-handoff.example.com", "custom_domain": true }
 ]
 ```
 
@@ -95,7 +95,7 @@ Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook U
 - `GET /threads/:threadId/events`: WebSocket delivery events backed by the relay Durable Object.
 - `POST /threads/:threadId/replies/:replyId/claim`: claims one reply or media group.
 - `GET /threads/:threadId`: debug thread state.
-- `POST /threads/:threadId/stop`: disables remote control for a thread.
+- `POST /threads/:threadId/stop`: disables iMessage handoff for a thread.
 - `POST /webhooks/sendblue`: receives Sendblue inbound events.
 
 All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pairs by texting the code, the relay links that token to their phone number.
@@ -107,9 +107,9 @@ Cloudflare persisted logging is disabled for this Worker in `wrangler.jsonc`. Ke
 ## Development
 
 ```bash
-pnpm --filter @gaberagland/remote-control-relay test
-pnpm --filter @gaberagland/remote-control-relay typecheck
-pnpm --filter @gaberagland/remote-control-relay dev
+pnpm --filter @gaberagland/imessage-handoff-relay test
+pnpm --filter @gaberagland/imessage-handoff-relay typecheck
+pnpm --filter @gaberagland/imessage-handoff-relay dev
 ```
 
 `src/worker.ts` is the Worker entrypoint and contains the route handling directly.

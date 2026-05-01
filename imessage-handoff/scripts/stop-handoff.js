@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 const { apiFetch, readActiveThreads, readConfig, writeActiveThreads } = require("./common.js");
 
-// stop-remote turns off remote continuation for the current local Codex thread.
+// stop-handoff turns off iMessage handoff for the current local Codex thread.
 // It updates both the hosted relay and local active-thread state, but local state
 // wins if the network is temporarily unavailable.
 
 async function main() {
   const codexThreadId = process.env.CODEX_THREAD_ID ? process.env.CODEX_THREAD_ID.trim() : "";
   if (!codexThreadId) {
-    console.error("CODEX_THREAD_ID is required. Run stop remote from inside a Codex thread.");
+    console.error("CODEX_THREAD_ID is required. Run stop handoff from inside a Codex thread.");
     process.exit(2);
   }
 

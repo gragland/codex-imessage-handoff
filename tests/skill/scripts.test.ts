@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import test from "node:test";
 
-const scriptsDir = path.resolve("remote-control/scripts");
+const scriptsDir = path.resolve("imessage-handoff/scripts");
 
 // These tests execute the installed skill scripts the same way Codex hooks do.
 // Most network calls are routed through a mock file so the tests can verify the
@@ -16,15 +16,15 @@ function scriptEnv(options: { stateDir: string; mockFile?: string; codexThreadId
     ...process.env,
     CODEX_HOME: options.codexHome ?? path.join(options.stateDir, "codex-home"),
     CODEX_THREAD_ID: options.codexThreadId ?? "",
-    REMOTE_CONTROL_STATE_DIR: options.stateDir,
-    REMOTE_CONTROL_TOKEN: "dev-token",
-    REMOTE_CONTROL_MOCK_FILE: options.mockFile ?? "",
-    REMOTE_CONTROL_STATE_DB: options.stateDb ?? "",
-    REMOTE_CONTROL_SESSION_LOG: options.sessionLog ?? "",
-    REMOTE_CONTROL_GLOBAL_STATE_PATH: options.globalState ?? "",
+    IMESSAGE_HANDOFF_STATE_DIR: options.stateDir,
+    IMESSAGE_HANDOFF_TOKEN: "dev-token",
+    IMESSAGE_HANDOFF_MOCK_FILE: options.mockFile ?? "",
+    IMESSAGE_HANDOFF_STATE_DB: options.stateDb ?? "",
+    IMESSAGE_HANDOFF_SESSION_LOG: options.sessionLog ?? "",
+    IMESSAGE_HANDOFF_GLOBAL_STATE_PATH: options.globalState ?? "",
   };
   if (options.relayUrl) {
-    env.REMOTE_CONTROL_RELAY_URL = options.relayUrl;
+    env.IMESSAGE_HANDOFF_RELAY_URL = options.relayUrl;
   }
   return env;
 }
@@ -51,7 +51,7 @@ function runScript(scriptName: string, args: string[], options: { stateDir: stri
 }
 
 function runCli(args: string[]) {
-  return spawnSync(process.execPath, [path.resolve("bin/remote-control.mjs"), ...args], {
+  return spawnSync(process.execPath, [path.resolve("bin/imessage-handoff.mjs"), ...args], {
     cwd: path.resolve("."),
     encoding: "utf8",
   });
@@ -62,9 +62,9 @@ function wait(ms: number) {
 }
 
 function tempState() {
-  // Each test gets its own Remote Control state directory. That keeps the
+  // Each test gets its own iMessage Handoff state directory. That keeps the
   // install/start/stop files isolated and makes failures easier to reason about.
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "http://127.0.0.1:9",
     token: "dev-token",
@@ -80,26 +80,26 @@ function mockFile(responses: Record<string, unknown>) {
   // The scripts know how to read this file instead of making real HTTP calls.
   // They append every request they would have sent, which lets assertions check
   // both the response handling and the outbound payload.
-  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-mock-")), "mock.json");
+  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-mock-")), "mock.json");
   writeFileSync(filePath, JSON.stringify({ responses, calls: [] }));
   return filePath;
 }
 
 function makePng(name: string, content: string) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "remote-control-image-"));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-image-"));
   const filePath = path.join(dir, name);
   writeFileSync(filePath, Buffer.from(content));
   return filePath;
 }
 
 function makeSessionLog(rows: unknown[]) {
-  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-session-")), "session.jsonl");
+  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-session-")), "session.jsonl");
   writeFileSync(filePath, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
   return filePath;
 }
 
 function makeGlobalState(queuedFollowUps: Record<string, unknown[]>) {
-  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-global-state-")), "global-state.json");
+  const filePath = path.join(mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-global-state-")), "global-state.json");
   writeFileSync(filePath, JSON.stringify({
     "queued-follow-ups": queuedFollowUps,
   }));
@@ -124,7 +124,7 @@ async function withInstallRelay<T>(callback: (url: string) => Promise<T>) {
 }
 
 function makeCodexStateDb(rows: Array<{ id: string; title: string }>) {
-  const dbPath = path.join(mkdtempSync(path.join(os.tmpdir(), "remote-control-state-db-")), "state_5.sqlite");
+  const dbPath = path.join(mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-state-db-")), "state_5.sqlite");
   const create = spawnSync("sqlite3", [dbPath, "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT NOT NULL);"], { encoding: "utf8" });
   assert.equal(create.status, 0, create.stderr);
   for (const row of rows) {
@@ -141,15 +141,15 @@ function sqlString(value: string) {
   return "'" + value.replace(/'/g, "''") + "'";
 }
 
-test("remote-control uninstall removes only the Remote Control Stop hook", () => {
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+test("imessage-handoff uninstall removes only the iMessage Handoff Stop hook", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   const hooksPath = path.join(codexHome, "hooks.json");
   writeFileSync(hooksPath, JSON.stringify({
     hooks: {
       Stop: [
         {
           hooks: [
-            { type: "command", command: "'node' '/tmp/remote-control/scripts/publish-stop.js'", timeout: 1 },
+            { type: "command", command: "'node' '/tmp/imessage-handoff/scripts/publish-stop.js'", timeout: 1 },
             { type: "command", command: "'node' '/tmp/other-tool/scripts/publish-stop.js'", timeout: 2 },
             { type: "command", command: "echo keep-stop-hook" },
           ],
@@ -180,15 +180,15 @@ test("remote-control uninstall removes only the Remote Control Stop hook", () =>
   assert.equal(hooksRoot.hooks.Notification[0].hooks[0].command, "echo keep-notification-hook");
 });
 
-test("remote-control uninstall removes empty Stop groups", () => {
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+test("imessage-handoff uninstall removes empty Stop groups", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   const hooksPath = path.join(codexHome, "hooks.json");
   writeFileSync(hooksPath, JSON.stringify({
     hooks: {
       Stop: [
         {
           hooks: [
-            { type: "command", command: "'node' '/tmp/remote-control/scripts/publish-stop.js'" },
+            { type: "command", command: "'node' '/tmp/imessage-handoff/scripts/publish-stop.js'" },
           ],
         },
       ],
@@ -203,8 +203,8 @@ test("remote-control uninstall removes empty Stop groups", () => {
   assert.equal("Stop" in hooksRoot.hooks, false);
 });
 
-test("remote-control install copies the skill without creating relay config or hooks", () => {
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+test("imessage-handoff install copies the skill without creating relay config or hooks", () => {
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   const result = runCli(["install", "--codex-home=" + codexHome]);
   assert.equal(result.status, 0, result.stderr);
 
@@ -212,14 +212,14 @@ test("remote-control install copies the skill without creating relay config or h
   assert.equal(output.ok, true);
   assert.equal(output.configured, false);
   assert.equal(output.hookInstalled, false);
-  assert.equal(existsSync(path.join(codexHome, "skills", "remote-control", "SKILL.md")), true);
-  assert.equal(existsSync(path.join(codexHome, "skills", "remote-control", ".state", "config.json")), false);
+  assert.equal(existsSync(path.join(codexHome, "skills", "imessage-handoff", "SKILL.md")), true);
+  assert.equal(existsSync(path.join(codexHome, "skills", "imessage-handoff", ".state", "config.json")), false);
   assert.equal(existsSync(path.join(codexHome, "hooks.json")), false);
 });
 
 test("configure sets a self-hosted relay and redacts config output", async () => {
   await withInstallRelay(async (relayUrl) => {
-    const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
     const result = await runScript("configure.js", ["set-relay", "--url=" + relayUrl], { stateDir });
     assert.equal(result.code, 0, result.stderr);
 
@@ -242,7 +242,7 @@ test("configure sets a self-hosted relay and redacts config output", async () =>
 
 test("configure use-default-relay creates hosted relay config", async () => {
   await withInstallRelay(async (relayUrl) => {
-    const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
     const result = await runScript("configure.js", ["use-default-relay"], { stateDir, relayUrl });
     assert.equal(result.code, 0, result.stderr);
 
@@ -261,7 +261,7 @@ test("configure use-default-relay creates hosted relay config", async () => {
 
 test("configure reset-token replaces the local token", async () => {
   await withInstallRelay(async (relayUrl) => {
-    const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
     writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
       apiBaseUrl: relayUrl,
       token: "old-token",
@@ -280,8 +280,8 @@ test("configure reset-token replaces the local token", async () => {
 });
 
 test("configure install-hook installs once and reports ready status", async () => {
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
 
   const before = await runScript("configure.js", ["hook-status"], { stateDir, codexHome });
   assert.equal(before.code, 0, before.stderr);
@@ -302,11 +302,11 @@ test("configure install-hook installs once and reports ready status", async () =
   assert.equal(secondOutput.ready, true);
 });
 
-test("configure hook-status accepts an existing Remote Control hook with a different node path", async () => {
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+test("configure hook-status accepts an existing iMessage Handoff hook with a different node path", async () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   const hooksPath = path.join(codexHome, "hooks.json");
-  const existingCommand = "'/usr/local/bin/node' '/Users/gabe/.codex/skills/remote-control/scripts/publish-stop.js'";
+  const existingCommand = "'/usr/local/bin/node' '/Users/gabe/.codex/skills/imessage-handoff/scripts/publish-stop.js'";
   writeFileSync(path.join(codexHome, "config.toml"), "[features]\ncodex_hooks = true\n");
   writeFileSync(hooksPath, JSON.stringify({
     hooks: {
@@ -315,7 +315,7 @@ test("configure hook-status accepts an existing Remote Control hook with a diffe
           type: "command",
           command: existingCommand,
           timeout: 86520,
-          statusMessage: "Waiting for remote messages",
+          statusMessage: "Waiting for iMessage replies",
           silent: true,
         }],
       }],
@@ -346,14 +346,14 @@ test("publish-stop exits quietly for inactive threads", async () => {
   assert.equal(result.stdout, "");
 });
 
-test("start-remote requires CODEX_THREAD_ID", async () => {
+test("start-handoff requires CODEX_THREAD_ID", async () => {
   const stateDir = tempState();
-  const result = await runScript("start-remote.js", [], { stateDir });
+  const result = await runScript("start-handoff.js", [], { stateDir });
   assert.equal(result.code, 2);
   assert.match(result.stderr, /CODEX_THREAD_ID is required/);
 });
 
-test("start-remote requires relay config before installing the Stop hook", async () => {
+test("start-handoff requires relay config before installing the Stop hook", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
       body: {
@@ -366,10 +366,10 @@ test("start-remote requires relay config before installing the Stop hook", async
       },
     },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     codexHome,
     mockFile: mockPath,
@@ -384,7 +384,7 @@ test("start-remote requires relay config before installing the Stop hook", async
   assert.equal(mock.calls.length, 0);
 });
 
-test("start-remote creates thread and writes active registry", async () => {
+test("start-handoff creates thread and writes active registry", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
       body: {
@@ -397,11 +397,11 @@ test("start-remote creates thread and writes active registry", async () => {
       },
     },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token" }));
 
-  const result = await runScript("start-remote.js", [
+  const result = await runScript("start-handoff.js", [
     "--cwd=/tmp/project",
     "--handoff-summary=You were deciding what to prototype next.",
   ], { stateDir, codexHome, mockFile: mockPath, codexThreadId: "codex-thread-1" });
@@ -413,7 +413,7 @@ test("start-remote creates thread and writes active registry", async () => {
   assert.equal(parsed.paired, false);
   assert.equal(parsed.pairingRequired, true);
   assert.equal(parsed.pairingCode, "ABC123");
-  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
+  assert.equal(parsed.localMessage, "iMessage Handoff is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
   assert.match(parsed.statusCurlCommand, /curl -sS/);
   assert.match(parsed.statusCurlCommand, /\/threads\/codex-thread-1/);
   const active = JSON.parse(readFileSync(path.join(stateDir, "active-threads.json"), "utf8"));
@@ -432,7 +432,7 @@ test("start-remote creates thread and writes active registry", async () => {
   assert.equal(existsSync(path.join(codexHome, "hooks.json")), false);
 });
 
-test("start-remote omits restart hint when hook setup is unchanged", async () => {
+test("start-handoff omits restart hint when hook setup is unchanged", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
       body: {
@@ -445,8 +445,8 @@ test("start-remote omits restart hint when hook setup is unchanged", async () =>
       },
     },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
-  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token" }));
   writeFileSync(path.join(codexHome, "config.toml"), "[features]\ncodex_hooks = true\n");
   writeFileSync(path.join(codexHome, "hooks.json"), JSON.stringify({
@@ -456,17 +456,17 @@ test("start-remote omits restart hint when hook setup is unchanged", async () =>
           type: "command",
           command: [
             shellQuoteForTest(process.execPath),
-            shellQuoteForTest(path.resolve("remote-control/scripts/publish-stop.js")),
+            shellQuoteForTest(path.resolve("imessage-handoff/scripts/publish-stop.js")),
           ].join(" "),
           timeout: 86520,
-          statusMessage: "Waiting for remote messages",
+          statusMessage: "Waiting for iMessage replies",
           silent: true,
         }],
       }],
     },
   }));
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     codexHome,
     mockFile: mockPath,
@@ -474,12 +474,12 @@ test("start-remote omits restart hint when hook setup is unchanged", async () =>
   });
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
+  assert.equal(parsed.localMessage, "iMessage Handoff is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
 });
 
-test("start-remote uses the Codex sidebar title from the local state db", async () => {
+test("start-handoff uses the Codex sidebar title from the local state db", async () => {
   const stateDb = makeCodexStateDb([
-    { id: "codex-thread-1", title: "Create remote-control app" },
+    { id: "codex-thread-1", title: "Create iMessage Handoff app" },
   ]);
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
@@ -495,7 +495,7 @@ test("start-remote uses the Codex sidebar title from the local state db", async 
   });
   const stateDir = tempState();
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     mockFile: mockPath,
     codexThreadId: "codex-thread-1",
@@ -503,17 +503,17 @@ test("start-remote uses the Codex sidebar title from the local state db", async 
   });
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.localMessage, "Remote control is enabled. Text `+1 (234) 419-8201` to talk to Codex.");
+  assert.equal(parsed.localMessage, "iMessage Handoff is enabled. Text `+1 (234) 419-8201` to talk to Codex.");
   const active = JSON.parse(readFileSync(path.join(stateDir, "active-threads.json"), "utf8"));
   assert.equal(active.threads["codex-thread-1"].skipNextStatusSend, true);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
-  assert.equal(mock.calls[0].body.title, "Create remote-control app");
+  assert.equal(mock.calls[0].body.title, "Create iMessage Handoff app");
   assert.equal("handoffSummary" in mock.calls[0].body, false);
 });
 
-test("start-remote sends normalized skill-link titles", async () => {
+test("start-handoff sends normalized skill-link titles", async () => {
   const stateDb = makeCodexStateDb([
-    { id: "codex-thread-1", title: "[$remote-control](/Users/gabe/.codex/skills/remote-control/SKILL.md)" },
+    { id: "codex-thread-1", title: "[$imessage-handoff](/Users/gabe/.codex/skills/imessage-handoff/SKILL.md)" },
   ]);
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
@@ -529,7 +529,7 @@ test("start-remote sends normalized skill-link titles", async () => {
   });
   const stateDir = tempState();
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     mockFile: mockPath,
     codexThreadId: "codex-thread-1",
@@ -537,12 +537,12 @@ test("start-remote sends normalized skill-link titles", async () => {
   });
   assert.equal(result.code, 0);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
-  assert.equal(mock.calls[0].body.title, "$remote-control");
+  assert.equal(mock.calls[0].body.title, "$imessage-handoff");
 });
 
-test("start-remote allows activation-only titles", async () => {
+test("start-handoff allows activation-only titles", async () => {
   const stateDb = makeCodexStateDb([
-    { id: "codex-thread-1", title: "Start remote control" },
+    { id: "codex-thread-1", title: "Start iMessage handoff" },
   ]);
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
@@ -558,7 +558,7 @@ test("start-remote allows activation-only titles", async () => {
   });
   const stateDir = tempState();
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     mockFile: mockPath,
     codexThreadId: "codex-thread-1",
@@ -566,10 +566,10 @@ test("start-remote allows activation-only titles", async () => {
   });
   assert.equal(result.code, 0);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
-  assert.equal(mock.calls[0].body.title, "Start remote control");
+  assert.equal(mock.calls[0].body.title, "Start iMessage handoff");
 });
 
-test("start-remote omits empty handoff summaries", async () => {
+test("start-handoff omits empty handoff summaries", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
       body: {
@@ -584,7 +584,7 @@ test("start-remote omits empty handoff summaries", async () => {
   });
   const stateDir = tempState();
 
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project", "--handoff-summary=   "], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project", "--handoff-summary=   "], {
     stateDir,
     mockFile: mockPath,
     codexThreadId: "codex-thread-1",
@@ -594,7 +594,7 @@ test("start-remote omits empty handoff summaries", async () => {
   assert.equal("handoffSummary" in mock.calls[0].body, false);
 });
 
-test("start-remote resets local activation time when re-enabling a thread", async () => {
+test("start-handoff resets local activation time when re-enabling a thread", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1": {
       body: {
@@ -620,7 +620,7 @@ test("start-remote resets local activation time when re-enabling a thread", asyn
   }));
 
   const before = Date.now();
-  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+  const result = await runScript("start-handoff.js", ["--cwd=/tmp/project"], {
     stateDir,
     mockFile: mockPath,
     codexThreadId: "codex-thread-1",
@@ -655,11 +655,11 @@ test("publish-stop exits immediately without active thread", async () => {
   assert.equal(mock.calls?.length ?? 0, 0);
 });
 
-test("publish-stop exits quietly after status when no remote reply is pending", async () => {
+test("publish-stop exits quietly after status when no iMessage reply is pending", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -712,7 +712,7 @@ test("publish-stop ignores session-log local messages unless a local follow-up i
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -748,12 +748,12 @@ test("publish-stop ignores session-log local messages unless a local follow-up i
   assert.equal(Boolean(active.threads["codex-thread-1"]), true);
 });
 
-test("publish-stop disables remote and blocks with a local takeover note", async () => {
+test("publish-stop disables handoff and blocks with a local takeover note", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/stop": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   const globalState = makeGlobalState({});
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
@@ -801,8 +801,8 @@ test("publish-stop disables remote and blocks with a local takeover note", async
   assert.equal((await closed), 0);
   const parsed = JSON.parse(stdout);
   assert.equal(parsed.decision, "block");
-  assert.match(parsed.reason, /Remote Control was active/);
-  assert.match(parsed.reason, /turn off Remote Control since you're back here in Codex/);
+  assert.match(parsed.reason, /iMessage Handoff was active/);
+  assert.match(parsed.reason, /turn off iMessage Handoff since you're back here in Codex/);
   assert.match(parsed.reason, /continue normally with the user's local message/);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
   const calls = mock.calls.map((call: { method: string; path: string }) => `${call.method} ${call.path}`);
@@ -812,7 +812,7 @@ test("publish-stop disables remote and blocks with a local takeover note", async
   assert.deepEqual(active.threads, {});
 });
 
-test("publish-stop claims a remote reply and emits a block decision", async () => {
+test("publish-stop claims an iMessage reply and emits a block decision", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_1/claim": {
@@ -824,7 +824,7 @@ test("publish-stop claims a remote reply and emits a block decision", async () =
     "/threads/codex-thread-1/events": [{ type: "reply-pending", replyId: "reply_1" }],
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -852,7 +852,7 @@ test("publish-stop claims a remote reply and emits a block decision", async () =
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.decision, "block");
-  assert.match(parsed.reason, /Local display block to render:\n\*\*Remote message\*\*\n> What is 2 \+ 2\?/);
+  assert.match(parsed.reason, /Local display block to render:\n\*\*iMessage reply\*\*\n> What is 2 \+ 2\?/);
   assert.match(parsed.reason, /send-update\.js' --thread-id='codex-thread-1' --message='Brief progress update here'/);
   assert.match(parsed.reason, /very brief progress update every few minutes/);
   assert.match(parsed.reason, /Start your assistant response with the local display block/);
@@ -874,7 +874,7 @@ test("send-update publishes a working status without exposing auth", async () =>
       body: { ok: true, notification: { sent: true, status: "QUEUED", messageHandle: "message-1" } },
     },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -913,7 +913,7 @@ test("publish-stop claims websocket replies by id", async () => {
     "/threads/codex-thread-1/events": [{ type: "reply-pending", replyId: "reply_1" }],
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -970,7 +970,7 @@ test("publish-stop reconnects when websocket closes before a reply", async () =>
     "/threads/codex-thread-1/events": [null, { type: "reply-pending", replyId: "reply_1" }],
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1010,7 +1010,7 @@ test("publish-stop reconnects when websocket closes before a reply", async () =>
   ]);
 });
 
-test("publish-stop formats multi-line remote replies including blank lines", async () => {
+test("publish-stop formats multi-line iMessage replies including blank lines", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_1/claim": {
@@ -1022,7 +1022,7 @@ test("publish-stop formats multi-line remote replies including blank lines", asy
     "/threads/codex-thread-1/events": [{ type: "reply-pending", replyId: "reply_1" }],
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1049,11 +1049,11 @@ test("publish-stop formats multi-line remote replies including blank lines", asy
   });
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.match(parsed.reason, /\*\*Remote message\*\*\n> First line\n>  \n> Third line/);
+  assert.match(parsed.reason, /\*\*iMessage reply\*\*\n> First line\n>  \n> Third line/);
   assert.match(parsed.reason, /User message to answer:\nFirst line\n\nThird line/);
 });
 
-test("publish-stop downloads one remote image and includes the local path", async () => {
+test("publish-stop downloads one iMessage image and includes the local path", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_1/claim": {
@@ -1078,7 +1078,7 @@ test("publish-stop downloads one remote image and includes the local path", asyn
     },
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1110,7 +1110,7 @@ test("publish-stop downloads one remote image and includes the local path", asyn
   assert.match(parsed.reason, new RegExp(`Attached images:\\n1\\. ${expectedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
-test("publish-stop downloads multiple remote images in order", async () => {
+test("publish-stop downloads multiple iMessage images in order", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_group/claim": {
@@ -1142,7 +1142,7 @@ test("publish-stop downloads multiple remote images in order", async () => {
     },
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1176,7 +1176,7 @@ test("publish-stop downloads multiple remote images in order", async () => {
   assert.match(parsed.reason, new RegExp(`1\\. ${firstPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n2\\. ${secondPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
-test("publish-stop reports a clear error when remote image download fails", async () => {
+test("publish-stop reports a clear error when iMessage image download fails", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/replies/reply_1/claim": {
@@ -1195,7 +1195,7 @@ test("publish-stop reports a clear error when remote image download fails", asyn
     "/threads/codex-thread-1/events": [{ type: "reply-pending", replyId: "reply_1" }],
   };
   writeFileSync(mockPath, JSON.stringify(mock));
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1229,7 +1229,7 @@ test("publish-stop exits without waiting when active entry is missing", async ()
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1252,12 +1252,12 @@ test("publish-stop exits without waiting when active entry is missing", async ()
   assert.equal(mock.calls?.length ?? 0, 0);
 });
 
-test("publish-stop exits during websocket wait after stop-remote removes the active entry", async () => {
+test("publish-stop exits during websocket wait after stop-handoff removes the active entry", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
     "POST /threads/codex-thread-1/stop": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({
     apiBaseUrl: "https://example.test",
     token: "dev-token",
@@ -1293,7 +1293,7 @@ test("publish-stop exits during websocket wait after stop-remote removes the act
   }));
 
   await wait(100);
-  const stop = await runScript("stop-remote.js", [], { stateDir, mockFile: mockPath, codexThreadId: "codex-thread-1" });
+  const stop = await runScript("stop-handoff.js", [], { stateDir, mockFile: mockPath, codexThreadId: "codex-thread-1" });
   assert.equal(stop.code, 0);
   assert.equal((await closed), 0);
   assert.equal(stdout, "");
@@ -1301,11 +1301,11 @@ test("publish-stop exits during websocket wait after stop-remote removes the act
   assert.equal(active.threads["codex-thread-1"], undefined);
 });
 
-test("stop-remote removes the current codex thread", async () => {
+test("stop-handoff removes the current codex thread", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/stop": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token" }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1314,7 +1314,7 @@ test("stop-remote removes the current codex thread", async () => {
     },
   }));
 
-  const result = await runScript("stop-remote.js", [], { stateDir, mockFile: mockPath, codexThreadId: "codex-thread-1" });
+  const result = await runScript("stop-handoff.js", [], { stateDir, mockFile: mockPath, codexThreadId: "codex-thread-1" });
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.removedCount, 1);
@@ -1329,9 +1329,9 @@ test("stop-remote removes the current codex thread", async () => {
   ]);
 });
 
-test("stop-remote requires a codex thread id", async () => {
+test("stop-handoff requires a codex thread id", async () => {
   const stateDir = tempState();
-  const result = await runScript("stop-remote.js", [], { stateDir });
+  const result = await runScript("stop-handoff.js", [], { stateDir });
   assert.equal(result.code, 2);
   assert.match(result.stderr, /CODEX_THREAD_ID is required/);
 });
@@ -1340,7 +1340,7 @@ test("publish-stop stores empty assistant messages as null", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1370,7 +1370,7 @@ test("publish-stop preserves substantive assistant summaries", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1388,19 +1388,19 @@ test("publish-stop preserves substantive assistant summaries", async () => {
     stdin: JSON.stringify({
       session_id: "codex-thread-1",
       cwd: "/tmp/project",
-      last_assistant_message: "Done. I created remote-test.txt.",
+      last_assistant_message: "Done. I created imessage-test.txt.",
     }),
   });
   assert.equal(result.code, 0);
   const mock = JSON.parse(readFileSync(mockPath, "utf8"));
-  assert.equal(mock.calls[0].body.lastAssistantMessage, "Done. I created remote-test.txt.");
+  assert.equal(mock.calls[0].body.lastAssistantMessage, "Done. I created imessage-test.txt.");
 });
 
-test("publish-stop skips the local start-remote activation status once", async () => {
+test("publish-stop skips the local start-handoff activation status once", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1419,7 +1419,7 @@ test("publish-stop skips the local start-remote activation status once", async (
     stdin: JSON.stringify({
       session_id: "codex-thread-1",
       cwd: "/tmp/project",
-      last_assistant_message: "Remote control is enabled. Text `+1 (234) 419-8201` to talk to Codex.",
+      last_assistant_message: "iMessage Handoff is enabled. Text `+1 (234) 419-8201` to talk to Codex.",
     }),
   });
   assert.equal(result.code, 0);
@@ -1429,11 +1429,11 @@ test("publish-stop skips the local start-remote activation status once", async (
   assert.equal(active.threads["codex-thread-1"].skipNextStatusSend, false);
 });
 
-test("publish-stop strips local-only remote message blocks before publishing status", async () => {
+test("publish-stop strips local-only iMessage reply blocks before publishing status", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1452,7 +1452,7 @@ test("publish-stop strips local-only remote message blocks before publishing sta
       session_id: "codex-thread-1",
       cwd: "/tmp/project",
       last_assistant_message: [
-        "**Remote message**",
+        "**iMessage reply**",
         "> What time is it?",
         "",
         "It's 8:57 PM PDT on Saturday, April 25, 2026.",
@@ -1464,11 +1464,11 @@ test("publish-stop strips local-only remote message blocks before publishing sta
   assert.equal(mock.calls[0].body.lastAssistantMessage, "It's 8:57 PM PDT on Saturday, April 25, 2026.");
 });
 
-test("publish-stop strips local-only remote message blocks when the header is quoted", async () => {
+test("publish-stop strips local-only iMessage reply blocks when the header is quoted", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1487,7 +1487,7 @@ test("publish-stop strips local-only remote message blocks when the header is qu
       session_id: "codex-thread-1",
       cwd: "/tmp/project",
       last_assistant_message: [
-        "> **Remote message**",
+        "> **iMessage reply**",
         "> Lfg",
         "",
         "Great - I'm ready. What do you want to start with?",
@@ -1503,7 +1503,7 @@ test("publish-stop strips multi-line local display blocks before publishing stat
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1522,7 +1522,7 @@ test("publish-stop strips multi-line local display blocks before publishing stat
       session_id: "codex-thread-1",
       cwd: "/tmp/project",
       last_assistant_message: [
-        "**Remote message**",
+        "**iMessage reply**",
         "> First line",
         ">  ",
         "> Third line",
@@ -1552,7 +1552,7 @@ test("publish-stop includes new generated images from the session log", async ()
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1601,7 +1601,7 @@ test("publish-stop skips generated images that were already sent", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1647,7 +1647,7 @@ test("publish-stop keeps generated images retryable when notification fails", as
       body: { ok: true, notification: { sent: false, status: "ERROR" } },
     },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
@@ -1693,7 +1693,7 @@ test("publish-stop preserves multiple generated images in order", async () => {
   const mockPath = mockFile({
     "POST /threads/codex-thread-1/status": { body: { ok: true } },
   });
-  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-test-"));
   writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token", stopWaitSeconds: 0 }));
   writeFileSync(path.join(stateDir, "active-threads.json"), JSON.stringify({
     threads: {
