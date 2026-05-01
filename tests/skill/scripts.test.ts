@@ -279,6 +279,29 @@ test("configure reset-token replaces the local token", async () => {
   });
 });
 
+test("configure install-hook installs once and reports ready status", async () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-config-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+
+  const before = await runScript("configure.js", ["hook-status"], { stateDir, codexHome });
+  assert.equal(before.code, 0, before.stderr);
+  assert.equal(JSON.parse(before.stdout).ready, false);
+
+  const install = await runScript("configure.js", ["install-hook"], { stateDir, codexHome });
+  assert.equal(install.code, 0, install.stderr);
+  const installOutput = JSON.parse(install.stdout);
+  assert.equal(installOutput.hookSetupChanged, true);
+  assert.equal(installOutput.codexHooksEnabled, true);
+  assert.equal(installOutput.stopHookInstalled, true);
+  assert.equal(installOutput.ready, true);
+
+  const secondInstall = await runScript("configure.js", ["install-hook"], { stateDir, codexHome });
+  assert.equal(secondInstall.code, 0, secondInstall.stderr);
+  const secondOutput = JSON.parse(secondInstall.stdout);
+  assert.equal(secondOutput.hookSetupChanged, false);
+  assert.equal(secondOutput.ready, true);
+});
+
 test("publish-stop exits quietly for inactive threads", async () => {
   const stateDir = tempState();
   const result = await runScript("publish-stop.js", [], {

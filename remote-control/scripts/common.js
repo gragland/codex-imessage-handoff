@@ -131,15 +131,71 @@ function ensureCodexHooksEnabled(filePath) {
   return false;
 }
 
+function areCodexHooksEnabled(filePath) {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+  const current = readFileSync(filePath, "utf8");
+  const match = current.match(/\[features\][\s\S]*?codex_hooks\s*=\s*(true|false)/);
+  return Boolean(match && match[1] === "true");
+}
+
+function remoteStopHookCommand(targetSkillDir) {
+  return [
+    shellQuote(process.execPath),
+    shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
+  ].join(" ");
+}
+
+function isDesiredRemoteStopHook(hook, targetSkillDir) {
+  return Boolean(
+    hook
+    && typeof hook === "object"
+    && hook.type === "command"
+    && hook.command === remoteStopHookCommand(targetSkillDir)
+    && hook.timeout === remoteStopHookTimeoutSeconds
+    && hook.statusMessage === remoteStopHookStatusMessage
+    && hook.silent === true
+  );
+}
+
+function hasDesiredStopHook(hooksPath, targetSkillDir) {
+  if (!existsSync(hooksPath)) {
+    return false;
+  }
+  const root = readJson(hooksPath);
+  const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
+  const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
+  return groups.some(function hasGroup(group) {
+    return group
+      && typeof group === "object"
+      && Array.isArray(group.hooks)
+      && group.hooks.some(function hasHook(hook) {
+        return isDesiredRemoteStopHook(hook, targetSkillDir);
+      });
+  });
+}
+
+function remoteControlHookStatus(codexHomePath, targetSkillDir) {
+  const configFilePath = path.join(codexHomePath, "config.toml");
+  const hooksPath = path.join(codexHomePath, "hooks.json");
+  const codexHooksEnabled = areCodexHooksEnabled(configFilePath);
+  const stopHookInstalled = hasDesiredStopHook(hooksPath, targetSkillDir);
+  return {
+    codexHooksEnabled,
+    stopHookInstalled,
+    ready: codexHooksEnabled && stopHookInstalled,
+    configFilePath,
+    hooksPath,
+  };
+}
+
 function installStopHook(hooksPath, targetSkillDir) {
   const root = existsSync(hooksPath) ? readJson(hooksPath) : {};
   const before = JSON.stringify(root);
   const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
   const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
-  const command = [
-    shellQuote(process.execPath),
-    shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
-  ].join(" ");
+  const command = remoteStopHookCommand(targetSkillDir);
 
   let found = false;
   for (const group of groups) {
@@ -475,18 +531,24 @@ function discoverThreadTitle(codexThreadId, cwd) {
 module.exports = {
   activeThreadsPath,
   apiFetch,
+  areCodexHooksEnabled,
   basenameForTitle,
   configPath,
+  codexHome,
   createInstallToken,
   defaultRelayUrl,
   discoverThreadTitle,
   ensureLocalInstall,
+  ensureCodexHooksEnabled,
   ensureStateDirs,
+  hasDesiredStopHook,
+  installStopHook,
   isUsableThreadTitle,
   readActiveThreads,
   readCodexSidebarTitle,
   readConfig,
   readJson,
+  remoteControlHookStatus,
   shellQuote,
   skillDir,
   stateDir,

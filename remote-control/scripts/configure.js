@@ -2,11 +2,16 @@
 const os = require("os");
 const path = require("path");
 const {
+  codexHome,
   configPath,
   createInstallToken,
   defaultRelayUrl,
+  ensureCodexHooksEnabled,
   ensureStateDirs,
+  installStopHook,
   readJson,
+  remoteControlHookStatus,
+  skillDir,
   uninstallStopHook,
   writeJson,
 } = require("./common.js");
@@ -95,6 +100,28 @@ async function main() {
     return;
   }
 
+  if (command === "hook-status") {
+    console.log(JSON.stringify({
+      ok: true,
+      ...remoteControlHookStatus(codexHome(), skillDir),
+    }, null, 2));
+    return;
+  }
+
+  if (command === "install-hook") {
+    const home = codexHome();
+    const configFilePath = path.join(home, "config.toml");
+    const hooksPath = path.join(home, "hooks.json");
+    const codexHooksChanged = ensureCodexHooksEnabled(configFilePath);
+    const stopHookChanged = installStopHook(hooksPath, skillDir);
+    console.log(JSON.stringify({
+      ok: true,
+      hookSetupChanged: codexHooksChanged || stopHookChanged,
+      ...remoteControlHookStatus(home, skillDir),
+    }, null, 2));
+    return;
+  }
+
   if (command === "uninstall") {
     const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
     const hooksPath = path.join(codexHome, "hooks.json");
@@ -107,7 +134,7 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: configure.js show | set-relay --url=https://... | reset-token | use-default-relay | uninstall");
+  throw new Error("Usage: configure.js show | set-relay --url=https://... | reset-token | use-default-relay | hook-status | install-hook | uninstall");
 }
 
 main().catch(function onError(error) {

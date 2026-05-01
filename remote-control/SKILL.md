@@ -13,13 +13,15 @@ If this skill is invoked without additional instructions, start remote for the c
 
 When starting remote, run the starter script yourself. Do not tell the user to run it.
 
-Before running `scripts/start-remote.js`, check whether Remote Control has local relay config:
+Before running `scripts/start-remote.js`, check whether Remote Control has local relay config and a ready Codex Stop hook:
 
 1. Run `node scripts/configure.js show`, resolving `scripts/configure.js` relative to this `SKILL.md`.
 2. If `configured` is false, do not run `scripts/start-remote.js`. Ask exactly:
 
    ```text
-   Remote Control needs an iMessage relay before it can start.
+   Remote Control needs a couple one-time setup steps before it can start.
+
+   First, choose an iMessage relay:
 
    1. Use the hosted relay
       Your messages pass through our server so we can forward them to iMessage. We avoid storing message content in our database.
@@ -41,19 +43,27 @@ Before running `scripts/start-remote.js`, check whether Remote Control has local
 
 5. If the user provides a relay URL, run `node scripts/configure.js set-relay --url="URL"`, then ask the hook consent question below.
 
-After relay config exists, but before the first time you run `scripts/start-remote.js` in this setup flow, ask exactly:
+After relay config exists, run `node scripts/configure.js hook-status`. If `ready` is false, ask exactly:
 
 ```text
-Remote Control also needs to install a Codex Stop hook. After Codex responds, this hook forwards the response to the relay and waits for iMessage replies.
+Next, Remote Control needs to install a one-time Codex Stop hook. After Codex responds, this hook forwards the response to the relay and waits for iMessage replies.
 
 With your permission, I’ll install it now. After installation, restart Codex once. If you ever want to stop Remote Control from communicating with the relay, tell it to remove its hook.
 
 Reply yes to install the hook.
 ```
 
-Only continue starting remote after the user says yes or gives an equivalent confirmation. If they do not confirm, do not run `scripts/start-remote.js`.
+Only install the hook after the user says yes or gives an equivalent confirmation. If they do not confirm, do not run `scripts/start-remote.js`.
 
-Once relay config exists and hook consent is confirmed:
+After the user confirms, run `node scripts/configure.js install-hook`, then reply exactly and stop:
+
+```text
+Remote Control hook is installed. Restart Codex once, then invoke `$remote-control` again to start remote control.
+```
+
+Do not run `scripts/start-remote.js` in the same turn that installs or repairs the hook. The restart lets Codex load the new hook before the pairing message is shown, so the Stop hook can wait for the iMessage reply.
+
+Once relay config exists and `node scripts/configure.js hook-status` reports `ready: true`:
 
 1. Write a one-sentence handoff summary for iMessage before running the script.
    - Summarize only what this thread was about immediately before starting remote control.
