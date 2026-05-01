@@ -27,7 +27,7 @@ Before running `scripts/start-handoff.js`, check whether iMessage Handoff has lo
       Your messages pass through our server so we can forward them to iMessage. We avoid storing message content in our database.
 
    2. Deploy your own relay
-      Follow the instructions here: https://github.com/gragland/imessage-handoff
+      Follow the instructions here: https://github.com/gragland/codex-imessage-handoff
 
    Reply with 1 or 2. You can switch relays any time by asking iMessage Handoff to switch.
    ```
@@ -36,7 +36,7 @@ Before running `scripts/start-handoff.js`, check whether iMessage Handoff has lo
 4. If the user replies with `2`, "deploy my own", "self-hosted", or similar without a relay URL, reply exactly:
 
    ```text
-   Okay. Follow the instructions here: https://github.com/gragland/imessage-handoff
+   Okay. Follow the instructions here: https://github.com/gragland/codex-imessage-handoff
 
    When you’re done, paste in your relay URL. Or just let me know if you’d like to use the hosted relay for now.
    ```

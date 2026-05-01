@@ -60,7 +60,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with an iMess
 10. Install and configure the skill against your relay.
 
    ```bash
-   $skill-installer install https://github.com/gragland/imessage-handoff/tree/main/imessage-handoff
+   $skill-installer install https://github.com/gragland/codex-imessage-handoff/tree/main/imessage-handoff
    ```
 
    Then ask Codex: `iMessage Handoff use my self-hosted relay at https://<your-worker-url>`

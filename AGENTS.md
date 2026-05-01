@@ -1,6 +1,6 @@
-# AGENTS: iMessage Handoff
+# AGENTS: Codex iMessage Handoff
 
-This is the standalone iMessage Handoff repo, intended to become public before launch.
+This is the standalone Codex iMessage Handoff repo, intended to become public before launch.
 
 ## Repo Shape
 
@@ -18,7 +18,7 @@ This is the standalone iMessage Handoff repo, intended to become public before l
 
 ## Gotchas
 
-- The README install path uses `$skill-installer install https://github.com/gragland/imessage-handoff/tree/main/imessage-handoff`. The root package also keeps the installer-style `npx github:gragland/imessage-handoff install` flow for compatibility. Runtime setup and config changes should happen through natural-language skill commands where possible.
+- The README install path uses `$skill-installer install https://github.com/gragland/codex-imessage-handoff/tree/main/imessage-handoff`. The root package also keeps the installer-style `npx github:gragland/codex-imessage-handoff install` flow for compatibility. Runtime setup and config changes should happen through natural-language skill commands where possible.
 - The `imessage-handoff` skill directory name and `scripts/publish-stop.js` hook path are part of the install/uninstall contract. If the GitHub repo name, skill directory name, installed skill path, or hook script name changes, update README/relay docs, `package.json` files, `bin/imessage-handoff.mjs`, `imessage-handoff/scripts/common.js` hook matching, tests, and any install/reset instructions together.
 - The installer default relay is still a temporary hosted workers.dev URL until a final product domain is chosen.
 - Sendblue API calls should use `api.sendblue.com`, not the older `.co` host.
