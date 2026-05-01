@@ -15,7 +15,7 @@ const JSON_HEADERS = {
 const IMESSAGE_REQUIRED_MESSAGE = "iMessage Handoff only supports phone numbers that use iMessage for now.";
 const CONTACT_CARD_MESSAGE = "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.";
 const CONTACT_CARD_FILENAME = "contact.vcf";
-const CONTACT_CARD_IMAGE_FILENAME = "codex-contact.png";
+const CONTACT_CARD_IMAGE_FILENAME = "codex-contact.jpg";
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
 const NO_HANDOFF_THREADS_MESSAGE = "You have no iMessage handoff threads";
 const SWITCH_RANGE_MESSAGE = "Text threads to see active iMessage handoff threads.";
@@ -823,19 +823,26 @@ function escapeVCardValue(value: string) {
     .replace(/;/g, "\\;");
 }
 
+function foldVCardLine(line: string) {
+  // vCard lines are folded with CRLF + space. iOS contact previews are more
+  // reliable with embedded photos than with remote PHOTO URLs, but the base64
+  // line needs folding so parsers accept the card.
+  const chunks = [];
+  for (let i = 0; i < line.length; i += 73) {
+    chunks.push((i === 0 ? "" : " ") + line.slice(i, i + 73));
+  }
+  return chunks.join("\r\n");
+}
+
 function contactCardResponse(request: Request, env: Env) {
-  const origin = new URL(request.url).origin;
   const phoneNumber = env.SENDBLUE_FROM_NUMBER?.trim() || "+12344198201";
-  const photoUrl = new URL(`/${CONTACT_CARD_IMAGE_FILENAME}`, origin).toString();
   const vcard = [
     "BEGIN:VCARD",
     "VERSION:3.0",
     `FN:${escapeVCardValue("Codex")}`,
-    `ORG:${escapeVCardValue("Codex")}`,
+    `N:${escapeVCardValue("Codex")};;;;`,
     `TEL;TYPE=CELL:${phoneNumber}`,
-    "URL:https://openai.com/codex",
-    `NOTE:${escapeVCardValue("Use this contact for iMessage Handoff with Codex.")}`,
-    `PHOTO;VALUE=URI;TYPE=PNG:${photoUrl}`,
+    foldVCardLine(`PHOTO;ENCODING=b;TYPE=JPEG:${CODEX_CONTACT_IMAGE_BASE64}`),
     "END:VCARD",
     "",
   ].join("\r\n");
@@ -852,7 +859,7 @@ function contactCardResponse(request: Request, env: Env) {
 function contactCardImageResponse() {
   return new Response(base64ToBytes(CODEX_CONTACT_IMAGE_BASE64), {
     headers: {
-      "content-type": "image/png",
+      "content-type": "image/jpeg",
       "cache-control": "public, max-age=31536000, immutable",
     },
   });

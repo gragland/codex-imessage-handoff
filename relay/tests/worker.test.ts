@@ -359,13 +359,17 @@ test("serves the Codex contact card and image", async () => {
   assert.equal(card.headers.get("content-type"), "text/vcard; charset=utf-8");
   const body = await card.text();
   assert.match(body, /FN:Codex/);
-  assert.match(body, /ORG:Codex/);
+  assert.match(body, /N:Codex;;;;/);
   assert.match(body, /TEL;TYPE=CELL:\+12344198201/);
-  assert.match(body, /PHOTO;VALUE=URI;TYPE=PNG:https:\/\/imessage-handoff\.test\/codex-contact\.png/);
+  assert.match(body, /PHOTO;ENCODING=b;TYPE=JPEG:/);
+  assert.match(body, /\r\n [A-Za-z0-9+/=]+/);
+  assert.doesNotMatch(body, /^ORG:/m);
+  assert.doesNotMatch(body, /^URL:/m);
+  assert.doesNotMatch(body, /^NOTE:/m);
 
-  const image = await handleRequest(req("/codex-contact.png"), testEnv);
+  const image = await handleRequest(req("/codex-contact.jpg"), testEnv);
   assert.equal(image.status, 200);
-  assert.equal(image.headers.get("content-type"), "image/png");
+  assert.equal(image.headers.get("content-type"), "image/jpeg");
   assert.ok((await image.arrayBuffer()).byteLength > 1000);
 });
 
