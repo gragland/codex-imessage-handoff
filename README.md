@@ -7,6 +7,8 @@ iMessage Handoff lets you continue a local Codex thread from iMessage. It has tw
 
 The hosted relay is the default path. You can also deploy your own Cloudflare relay and point the skill at it.
 
+![iMessage Handoff running in Codex](images/codex-preview.png)
+
 ## Install
 
 Install the skill from Codex:
