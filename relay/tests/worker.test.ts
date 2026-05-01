@@ -594,15 +594,15 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
     }, null, {
       number: "+15551234567",
       from_number: "+12344198201",
-      content: 'You’re connected to "iMessage test" on Codex.\n\nYou were deciding what the first playable prototype should include.\n\nWhat do you want to do next?',
-    }, {
-      number: "+15551234567",
-      from_number: "+12344198201",
-      content: "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
+      content: "Add me as a contact so you remember who I am.",
     }, {
       number: "+15551234567",
       from_number: "+12344198201",
       media_url: "https://imessage-handoff.test/contact.vcf",
+    }, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      content: 'You’re connected to "iMessage test" on Codex.\n\nYou were deciding what the first playable prototype should include.\n\nWhat do you want to do next?',
     }]);
     assert.equal(typeof db.phoneBindings.get("+15551234567")?.contact_card_sent_at, "string");
 
@@ -673,8 +673,8 @@ test("activation message omits the summary paragraph when no summary exists", as
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(outboundContents(calls), [
+    "Add me as a contact so you remember who I am.",
     'You’re connected to "iMessage test" on Codex.\n\nWhat do you want to do next?',
-    "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
   ]);
 });
 
@@ -701,8 +701,8 @@ test("activation message uses generic copy when no title exists", async () => {
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(outboundContents(calls), [
+    "Add me as a contact so you remember who I am.",
     "You’re connected to this Codex thread.\n\nWhat do you want to do next?",
-    "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.",
   ]);
 });
 

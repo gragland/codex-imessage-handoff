@@ -13,7 +13,7 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "authorization,content-type",
 };
 const IMESSAGE_REQUIRED_MESSAGE = "iMessage Handoff only supports phone numbers that use iMessage for now.";
-const CONTACT_CARD_MESSAGE = "If you want, save the contact card I’m sending next so these texts show up as Codex instead of a phone number.";
+const CONTACT_CARD_MESSAGE = "Add me as a contact so you remember who I am.";
 const CONTACT_CARD_FILENAME = "contact.vcf";
 const CONTACT_CARD_IMAGE_FILENAME = "codex-contact.jpg";
 const THREAD_LIST_COMMANDS = new Set(["list", "threads"]);
@@ -1193,11 +1193,6 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     if (externalId) {
       await insertHandoffReply(env, pairingThread.id, content ?? "", externalId, "applied");
     }
-    try {
-      await sendSendblueMessage(env, fromNumber, handoffActivationMessage(pairingThread));
-    } catch {
-      // Pairing should still succeed if the confirmation send is temporarily unavailable.
-    }
     if (!previousBinding?.contact_card_sent_at) {
       try {
         await sendPairingContactCard(env, fromNumber, new URL(request.url).origin);
@@ -1208,6 +1203,11 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
       } catch {
         console.warn("Sendblue contact card failed.");
       }
+    }
+    try {
+      await sendSendblueMessage(env, fromNumber, handoffActivationMessage(pairingThread));
+    } catch {
+      // Pairing should still succeed if the confirmation send is temporarily unavailable.
     }
     return json({ ok: true, paired: true, threadId: pairingThread.id, service });
   }
