@@ -94,7 +94,7 @@ Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook U
 - `POST /threads/:threadId/status`: forwards Codex output, progress updates, and generated images to iMessage without storing the outbound content.
 - `GET /threads/:threadId/events`: WebSocket delivery events backed by the relay Durable Object.
 - `POST /threads/:threadId/replies/:replyId/claim`: claims one reply or media group.
-- `GET /threads/:threadId`: debug thread state.
+- `GET /threads/:threadId`: returns thread routing metadata.
 - `POST /threads/:threadId/stop`: disables iMessage handoff for a thread.
 - `POST /webhooks/sendblue`: receives Sendblue inbound events.
 
@@ -102,7 +102,7 @@ All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pai
 
 The relay stores the minimum data needed to route messages. Cloudflare D1 is still required for routing metadata such as thread state, pairing state, and phone bindings, but message content is never stored there. Inbound message content is held only in the Durable Object's in-memory buffer while pending, then scrubbed when local Codex claims it. Outbound Codex replies are forwarded to Sendblue and are not stored by the relay.
 
-Cloudflare persisted logging is disabled for this Worker in `wrangler.jsonc`. Keep Worker logs, log exports, Tail Workers, and tracing off in production unless the full pipeline is reviewed first. Message bodies are never placed in URLs, and relay warnings intentionally avoid logging Sendblue response payloads because provider error payloads could echo message content.
+Cloudflare persisted logging is disabled for this Worker in `wrangler.jsonc`. Message bodies are never placed in URLs, and relay warnings intentionally avoid logging Sendblue response payloads because provider error payloads could echo message content.
 
 ## Development
 
