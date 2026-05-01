@@ -359,6 +359,7 @@ test("serves the Codex contact card and image", async () => {
   assert.equal(card.headers.get("content-type"), "text/vcard; charset=utf-8");
   const body = await card.text();
   assert.match(body, /FN:Codex/);
+  assert.match(body, /ORG:Codex/);
   assert.match(body, /TEL;TYPE=CELL:\+12344198201/);
   assert.match(body, /PHOTO;VALUE=URI;TYPE=PNG:https:\/\/imessage-handoff\.test\/codex-contact\.png/);
 

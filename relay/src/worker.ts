@@ -831,7 +831,7 @@ function contactCardResponse(request: Request, env: Env) {
     "BEGIN:VCARD",
     "VERSION:3.0",
     `FN:${escapeVCardValue("Codex")}`,
-    `ORG:${escapeVCardValue("OpenAI")}`,
+    `ORG:${escapeVCardValue("Codex")}`,
     `TEL;TYPE=CELL:${phoneNumber}`,
     "URL:https://openai.com/codex",
     `NOTE:${escapeVCardValue("Use this contact for iMessage Handoff with Codex.")}`,
