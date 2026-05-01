@@ -94,9 +94,12 @@ async function ensureLocalInstall() {
     token,
     stopWaitSeconds: readNumber(existingConfig?.stopWaitSeconds, process.env.REMOTE_CONTROL_STOP_WAIT_SECONDS, 86400),
   });
-  ensureCodexHooksEnabled(path.join(codexHome(), "config.toml"));
-  installStopHook(path.join(codexHome(), "hooks.json"), skillDir);
-  return readConfig();
+  const codexHooksChanged = ensureCodexHooksEnabled(path.join(codexHome(), "config.toml"));
+  const stopHookChanged = installStopHook(path.join(codexHome(), "hooks.json"), skillDir);
+  return {
+    ...readConfig(),
+    hookSetupChanged: codexHooksChanged || stopHookChanged,
+  };
 }
 
 async function createInstallToken(apiBaseUrl) {
@@ -123,11 +126,14 @@ function ensureCodexHooksEnabled(filePath) {
   }
   if (next !== current) {
     writeText(filePath, next);
+    return true;
   }
+  return false;
 }
 
 function installStopHook(hooksPath, targetSkillDir) {
   const root = existsSync(hooksPath) ? readJson(hooksPath) : {};
+  const before = JSON.stringify(root);
   const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : {};
   const groups = Array.isArray(hooks.Stop) ? hooks.Stop : [];
   const command = [
@@ -145,16 +151,25 @@ function installStopHook(hooksPath, targetSkillDir) {
         continue;
       }
       if (isRemoteControlStopHook(hook.command)) {
-        hook.type = "command";
-        hook.command = command;
-        hook.timeout = remoteStopHookTimeoutSeconds;
-        hook.statusMessage = remoteStopHookStatusMessage;
-        hook.silent = true;
+        if (
+          hook.type !== "command"
+          || hook.command !== command
+          || hook.timeout !== remoteStopHookTimeoutSeconds
+          || hook.statusMessage !== remoteStopHookStatusMessage
+          || hook.silent !== true
+        ) {
+          hook.type = "command";
+          hook.command = command;
+          hook.timeout = remoteStopHookTimeoutSeconds;
+          hook.statusMessage = remoteStopHookStatusMessage;
+          hook.silent = true;
+        }
         found = true;
       }
     }
   }
 
+  let changed = false;
   if (!found) {
     groups.push({
       hooks: [{
@@ -165,11 +180,18 @@ function installStopHook(hooksPath, targetSkillDir) {
         silent: true,
       }],
     });
+    changed = true;
   }
 
   hooks.Stop = groups;
   root.hooks = hooks;
-  writeJson(hooksPath, root);
+  if (JSON.stringify(root) !== before) {
+    changed = true;
+  }
+  if (changed) {
+    writeJson(hooksPath, root);
+  }
+  return changed;
 }
 
 function isRemoteControlStopHook(command) {

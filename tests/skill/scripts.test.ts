@@ -72,6 +72,10 @@ function tempState() {
   return stateDir;
 }
 
+function shellQuoteForTest(value: string) {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
 function mockFile(responses: Record<string, unknown>) {
   // The scripts know how to read this file instead of making real HTTP calls.
   // They append every request they would have sent, which lets assertions check
@@ -352,7 +356,7 @@ test("start-remote creates thread and writes active registry", async () => {
   assert.equal(parsed.paired, false);
   assert.equal(parsed.pairingRequired, true);
   assert.equal(parsed.pairingCode, "ABC123");
-  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
+  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage. If Codex does not wait for replies after this message, restart Codex once.");
   assert.match(parsed.statusCurlCommand, /curl -sS/);
   assert.match(parsed.statusCurlCommand, /\/threads\/codex-thread-1/);
   const active = JSON.parse(readFileSync(path.join(stateDir, "active-threads.json"), "utf8"));
@@ -373,6 +377,51 @@ test("start-remote creates thread and writes active registry", async () => {
   assert.equal(stopHook.type, "command");
   assert.match(stopHook.command, /publish-stop\.js/);
   assert.equal(stopHook.statusMessage, "Waiting for remote messages");
+});
+
+test("start-remote omits restart hint when hook setup is unchanged", async () => {
+  const mockPath = mockFile({
+    "POST /threads/codex-thread-1": {
+      body: {
+        id: "codex-thread-1",
+        sendblueNumber: "+12344198201",
+        paired: false,
+        pairingRequired: true,
+        pairingCode: "ABC123",
+        skipNextStatusSend: false,
+      },
+    },
+  });
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "remote-control-test-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "remote-control-codex-home-"));
+  writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ apiBaseUrl: "https://example.test", token: "dev-token" }));
+  writeFileSync(path.join(codexHome, "config.toml"), "[features]\ncodex_hooks = true\n");
+  writeFileSync(path.join(codexHome, "hooks.json"), JSON.stringify({
+    hooks: {
+      Stop: [{
+        hooks: [{
+          type: "command",
+          command: [
+            shellQuoteForTest(process.execPath),
+            shellQuoteForTest(path.resolve("remote-control/scripts/publish-stop.js")),
+          ].join(" "),
+          timeout: 86520,
+          statusMessage: "Waiting for remote messages",
+          silent: true,
+        }],
+      }],
+    },
+  }));
+
+  const result = await runScript("start-remote.js", ["--cwd=/tmp/project"], {
+    stateDir,
+    codexHome,
+    mockFile: mockPath,
+    codexThreadId: "codex-thread-1",
+  });
+  assert.equal(result.code, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.localMessage, "Remote control is enabled. Text `ABC123` to `+1 (234) 419-8201` to continue this thread from iMessage.");
 });
 
 test("start-remote uses the Codex sidebar title from the local state db", async () => {
