@@ -12,7 +12,6 @@ const JSON_HEADERS = {
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "authorization,content-type",
 };
-const IMESSAGE_REQUIRED_MESSAGE = "iMessage Handoff only supports phone numbers that use iMessage for now.";
 const CONTACT_CARD_MESSAGE = "Add me as a contact so you remember who I am.";
 const CONTACT_CARD_FILENAME = "contact.vcf";
 const CONTACT_CARD_IMAGE_FILENAME = "codex-contact.jpg";
@@ -1156,14 +1155,39 @@ async function sendSendblueCarousel(env: Env, number: string, mediaUrls: string[
   return assertSendblueAccepted(body);
 }
 
+async function lookupSendblueService(env: Env, number: string) {
+  const url = new URL(`${sendblueApiBaseUrl(env)}/evaluate-service`);
+  url.searchParams.set("number", number);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: sendblueAuthOnlyHeaders(env),
+  });
+  const body = await readSendblueJson(response);
+  if (!response.ok) {
+    throw new Error(`Sendblue lookup API returned HTTP ${response.status}.`);
+  }
+  const payload = isRecord(body) && isRecord(body.data) ? body.data : body;
+  const service = isRecord(payload) ? optionalString(payload.service) : null;
+  return service?.toLowerCase() ?? null;
+}
+
+async function shouldUseSendblueCarousel(env: Env, number: string) {
+  try {
+    return await lookupSendblueService(env, number) === "imessage";
+  } catch {
+    console.warn("Sendblue service lookup failed.");
+  }
+  return false;
+}
+
 async function sendStatusNotification(
   env: Env,
   number: string,
   lastAssistantMessage: string | null,
   images: GeneratedImageInput[],
 ) {
-  // A Stop hook status can be text, generated images, or both. Sendblue uses a
-  // normal message for one image and a carousel endpoint for multiple images.
+  // A Stop hook status can be text, generated images, or both. Carousels are
+  // iMessage-only, so non-iMessage recipients get separate media messages.
   const formattedText = lastAssistantMessage ? formatForSendblue(lastAssistantMessage) : null;
   const mediaUrls = [];
   for (const image of images) {
@@ -1176,10 +1200,20 @@ async function sendStatusNotification(
   if (mediaUrls.length === 1) {
     return sendSendblueMessage(env, number, formattedText, mediaUrls[0]);
   }
-  if (formattedText) {
-    await sendSendblueMessage(env, number, formattedText);
+  if (await shouldUseSendblueCarousel(env, number)) {
+    if (formattedText) {
+      await sendSendblueMessage(env, number, formattedText);
+    }
+    return sendSendblueCarousel(env, number, mediaUrls);
   }
-  return sendSendblueCarousel(env, number, mediaUrls);
+  let sendResult: Awaited<ReturnType<typeof sendSendblueMessage>> | null = null;
+  if (formattedText) {
+    sendResult = await sendSendblueMessage(env, number, formattedText);
+  }
+  for (const mediaUrl of mediaUrls) {
+    sendResult = await sendSendblueMessage(env, number, null, mediaUrl);
+  }
+  return sendResult;
 }
 
 async function sendSendblueTypingIndicator(env: Env, number: string) {
@@ -1217,34 +1251,6 @@ async function sendSendblueReadReceipt(env: Env, number: string) {
   if (!response.ok) {
     throw new Error(`Sendblue read receipt API returned HTTP ${response.status}.`);
   }
-}
-
-async function lookupSendblueService(env: Env, number: string) {
-  const url = new URL(`${sendblueApiBaseUrl(env)}/evaluate-service`);
-  url.searchParams.set("number", number);
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: sendblueAuthOnlyHeaders(env),
-  });
-  const body = await readSendblueJson(response);
-  if (!response.ok) {
-    throw new Error(`Sendblue lookup API returned HTTP ${response.status}.`);
-  }
-  const payload = isRecord(body) && isRecord(body.data) ? body.data : body;
-  const service = isRecord(payload) ? optionalString(payload.service) : null;
-  if (service !== "iMessage" && service !== "SMS") {
-    return null;
-  }
-  return service;
-}
-
-async function lookupPairingService(env: Env, phoneNumber: string) {
-  try {
-    return await lookupSendblueService(env, phoneNumber);
-  } catch {
-    // Pairing should remain available if Sendblue's lookup endpoint is temporarily unavailable.
-  }
-  return null;
 }
 
 async function handleStatus(request: Request, env: Env, threadId: string) {
@@ -1306,8 +1312,8 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
 }
 
 async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
-  // Claim returns exactly one iMessage prompt to local Codex and marks it applied.
-  // The typing indicator is sent after claim to make the iMessage side feel live.
+  // Claim returns exactly one remote prompt to local Codex and marks it applied.
+  // The typing indicator is best-effort; Sendblue delivers it only for iMessage.
   const ownerId = await requireOwnerId(request);
   assertAuthorized(await findThread(env, threadId), ownerId);
   const claim = await relaySocket(env)
@@ -1397,8 +1403,8 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
   const pairingCodeCandidate = content ? content.toUpperCase() : null;
   const looksLikePairingCode = isPairingCodeCandidate(pairingCodeCandidate);
   if (looksLikePairingCode) {
-    // A blocked phone should not even reach Sendblue service lookup. This keeps
-    // repeated guesses from doing provider work after the local block is active.
+    // A blocked phone should not receive provider-side replies for repeated
+    // guesses after the local block is active.
     const limit = await pairingRateLimitStatus(env, fromNumber);
     if (limit.blocked) {
       await sendControlMessage(env, fromNumber, pairingRateLimitMessage(limit.retryAfterSeconds));
@@ -1416,14 +1422,6 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     // First-time setup: user texts the pairing code, linking this phone number
     // to the owner id derived from the local install token.
     const now = nowIso();
-    const service = await lookupPairingService(env, fromNumber);
-    if (service === "SMS") {
-      if (externalId) {
-        await insertHandoffReply(env, pairingThread.id, content ?? "", externalId, "applied");
-      }
-      await sendControlMessage(env, fromNumber, IMESSAGE_REQUIRED_MESSAGE);
-      return json({ ok: true, paired: false, unsupportedService: "SMS" });
-    }
     const previousBinding = await findPhoneBinding(env, fromNumber);
     await env.DB.prepare(
       "DELETE FROM phone_bindings WHERE owner_id = ? AND phone_number != ?",
@@ -1459,7 +1457,7 @@ async function handleSendblueWebhook(request: Request, env: Env, ctx?: Execution
     } catch {
       // Pairing should still succeed if the confirmation send is temporarily unavailable.
     }
-    return json({ ok: true, paired: true, threadId: pairingThread.id, service });
+    return json({ ok: true, paired: true, threadId: pairingThread.id });
   }
 
   const binding = await findPhoneBinding(env, fromNumber);

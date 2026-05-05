@@ -1,10 +1,10 @@
 # iMessage Handoff Relay
 
-This package contains the plain Cloudflare Worker relay for iMessage Handoff. It intentionally avoids a web framework so the hosted code path is small and easy to audit.
+This package contains the plain Cloudflare Worker relay for iMessage Handoff. It supports normal SMS users as well as Sendblue's automatic SMS fallback for recipients who are not on iMessage. It intentionally avoids a web framework so the hosted code path is small and easy to audit.
 
 ## Self-Hosting
 
-Before starting, you need a Cloudflare account, a Sendblue account with an iMessage-capable number, and Node/pnpm installed locally.
+Before starting, you need a Cloudflare account, a Sendblue account with a messaging-capable number, and Node/pnpm installed locally.
 
 1. Install dependencies from the repo root.
 

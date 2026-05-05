@@ -661,9 +661,6 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
       body: init?.body ? JSON.parse(String(init.body)) : null,
       headers: new Headers(init?.headers),
     });
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
-    }
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
   try {
@@ -671,13 +668,11 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
     assert.equal(response.status, 200);
     const body = await json(response);
     assert.equal(body.paired, true);
-    assert.equal(body.service, "iMessage");
     assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, threadId);
     assert.equal(db.threads.get(threadId)?.pairing_code, null);
     assert.equal(db.threads.get(threadId)?.pairing_code_expires_at, null);
     assert.deepEqual(calls.map((call) => call.url), [
       "https://api.sendblue.test/api/mark-read",
-      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
       "https://api.sendblue.test/api/send-message",
       "https://api.sendblue.test/api/send-message",
       "https://api.sendblue.test/api/send-message",
@@ -685,7 +680,7 @@ test("pairs a phone by code without enqueueing a pending reply", async () => {
     assert.deepEqual(calls.map((call) => call.body), [{
       number: "+15551234567",
       from_number: "+12344198201",
-    }, null, {
+    }, {
       number: "+15551234567",
       from_number: "+12344198201",
       content: "Add me as a contact so you remember who I am.",
@@ -724,9 +719,6 @@ test("sends the pairing contact card only once per phone", async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<Record<string, unknown> | null> = [];
   globalThis.fetch = async (input, init) => {
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
-    }
     calls.push(init?.body ? JSON.parse(String(init.body)) : null);
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
@@ -754,9 +746,6 @@ test("activation message omits the summary paragraph when no summary exists", as
   const originalFetch = globalThis.fetch;
   const calls: Array<Record<string, unknown> | null> = [];
   globalThis.fetch = async (input, init) => {
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
-    }
     calls.push(init?.body ? JSON.parse(String(init.body)) : null);
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
@@ -782,9 +771,6 @@ test("activation message uses generic copy when no title exists", async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<Record<string, unknown> | null> = [];
   globalThis.fetch = async (input, init) => {
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
-    }
     calls.push(init?.body ? JSON.parse(String(init.body)) : null);
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
@@ -800,7 +786,7 @@ test("activation message uses generic copy when no title exists", async () => {
   ]);
 });
 
-test("pairing rejects phone numbers that do not support iMessage", async () => {
+test("pairing allows SMS numbers so Sendblue can use SMS fallback", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
@@ -814,32 +800,37 @@ test("pairing rejects phone numbers that do not support iMessage", async () => {
       url: String(input),
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "SMS" }), { status: 200 });
-    }
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
   try {
     const response = await handleRequest(sendblueWebhook(inboundMessage(String(pairingCode), "pair_msg_sms")), testEnv);
     assert.equal(response.status, 200);
     const body = await json(response);
-    assert.equal(body.paired, false);
-    assert.equal(body.unsupportedService, "SMS");
-    assert.equal(db.phoneBindings.get("+15551234567"), undefined);
-    assert.equal(db.threads.get(threadId)?.pairing_code, pairingCode);
-    assert.equal(typeof db.threads.get(threadId)?.pairing_code_expires_at, "string");
+    assert.equal(body.paired, true);
+    assert.equal(db.phoneBindings.get("+15551234567")?.active_thread_id, threadId);
+    assert.equal(db.threads.get(threadId)?.pairing_code, null);
+    assert.equal(db.threads.get(threadId)?.pairing_code_expires_at, null);
     assert.deepEqual(calls.map((call) => call.url), [
       "https://api.sendblue.test/api/mark-read",
-      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
+      "https://api.sendblue.test/api/send-message",
+      "https://api.sendblue.test/api/send-message",
       "https://api.sendblue.test/api/send-message",
     ]);
     assert.deepEqual(calls.map((call) => call.body), [{
       number: "+15551234567",
       from_number: "+12344198201",
-    }, null, {
+    }, {
       number: "+15551234567",
       from_number: "+12344198201",
-      content: "iMessage Handoff only supports phone numbers that use iMessage for now.",
+      content: "Add me as a contact so you remember who I am.",
+    }, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      media_url: "https://imessage-handoff.test/contact.vcf",
+    }, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      content: 'You’re connected to "iMessage test" on Codex.\n\nWhat do you want to do next?',
     }]);
     assert.deepEqual(pendingReplies(testEnv, threadId), []);
   } finally {
@@ -1379,10 +1370,7 @@ test("successful pairing clears prior failed attempts", async () => {
   });
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input) => {
-    if (String(input).includes("/evaluate-service")) {
-      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
-    }
+  globalThis.fetch = async () => {
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "message-1" }), { status: 200 });
   };
   try {
@@ -1631,7 +1619,7 @@ test("uploads one generated image and sends it with send-message", async () => {
     const url = String(input);
     calls.push({
       url,
-      body: init?.body instanceof FormData ? "form-data" : JSON.parse(String(init?.body)),
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
     });
     if (url.endsWith("/upload-file")) {
       return new Response(JSON.stringify({ media_url: "https://cdn.sendblue.test/cow.png" }), { status: 200 });
@@ -1742,7 +1730,7 @@ test("sends text and one generated image together", async () => {
     const url = String(input);
     calls.push({
       url,
-      body: init?.body instanceof FormData ? "form-data" : JSON.parse(String(init?.body)),
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
     });
     if (url.endsWith("/upload-file")) {
       return new Response(JSON.stringify({ media_url: "https://cdn.sendblue.test/cow.png" }), { status: 200 });
@@ -1776,7 +1764,7 @@ test("sends text and one generated image together", async () => {
   }
 });
 
-test("uploads multiple generated images and sends one carousel", async () => {
+test("uploads multiple generated images and sends a carousel for iMessage users", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
@@ -1795,10 +1783,13 @@ test("uploads multiple generated images and sends one carousel", async () => {
     const url = String(input);
     calls.push({
       url,
-      body: init?.body instanceof FormData ? "form-data" : JSON.parse(String(init?.body)),
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
     });
     if (url.endsWith("/upload-file")) {
       return new Response(JSON.stringify({ media_url: `https://cdn.sendblue.test/image-${calls.length}.png` }), { status: 200 });
+    }
+    if (url.includes("/evaluate-service")) {
+      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
     }
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: "carousel-1" }), { status: 200 });
   };
@@ -1818,9 +1809,10 @@ test("uploads multiple generated images and sends one carousel", async () => {
     assert.deepEqual(calls.map((call) => call.url), [
       "https://api.sendblue.test/api/upload-file",
       "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
       "https://api.sendblue.test/api/send-carousel",
     ]);
-    assert.deepEqual(calls[2]?.body, {
+    assert.deepEqual(calls[3]?.body, {
       number: "+15551234567",
       from_number: "+12344198201",
       media_urls: [
@@ -1834,7 +1826,7 @@ test("uploads multiple generated images and sends one carousel", async () => {
   }
 });
 
-test("sends text before carousel for text plus multiple images", async () => {
+test("sends text before carousel for iMessage users with multiple generated images", async () => {
   const testEnv = env();
   const threadId = await register(testEnv);
   const db = testEnv.DB as unknown as FakeD1Database;
@@ -1853,10 +1845,13 @@ test("sends text before carousel for text plus multiple images", async () => {
     const url = String(input);
     calls.push({
       url,
-      body: init?.body instanceof FormData ? "form-data" : JSON.parse(String(init?.body)),
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
     });
     if (url.endsWith("/upload-file")) {
       return new Response(JSON.stringify({ media_url: `https://cdn.sendblue.test/image-${calls.length}.png` }), { status: 200 });
+    }
+    if (url.includes("/evaluate-service")) {
+      return new Response(JSON.stringify({ number: "+15551234567", service: "iMessage" }), { status: 200 });
     }
     const handle = url.endsWith("/send-carousel") ? "carousel-1" : "message-1";
     return new Response(JSON.stringify({ status: "QUEUED", message_handle: handle }), { status: 200 });
@@ -1877,15 +1872,141 @@ test("sends text before carousel for text plus multiple images", async () => {
     assert.deepEqual(calls.map((call) => call.url), [
       "https://api.sendblue.test/api/upload-file",
       "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
       "https://api.sendblue.test/api/send-message",
       "https://api.sendblue.test/api/send-carousel",
     ]);
-    assert.deepEqual(calls[2]?.body, {
+    assert.deepEqual(calls[3]?.body, {
       number: "+15551234567",
       from_number: "+12344198201",
       content: "Two cow options.",
     });
+    assert.deepEqual(calls[4]?.body, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      media_urls: [
+        "https://cdn.sendblue.test/image-1.png",
+        "https://cdn.sendblue.test/image-2.png",
+      ],
+    });
     assert.equal((await notification(status)).messageHandle, "carousel-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends multiple generated images separately for SMS users", async () => {
+  const testEnv = env();
+  const threadId = await register(testEnv);
+  const db = testEnv.DB as unknown as FakeD1Database;
+  db.phoneBindings.set("+15551234567", {
+    phone_number: "+15551234567",
+    owner_id: DEV_OWNER_ID,
+    active_thread_id: threadId,
+    contact_card_sent_at: null,
+    created_at: "2026-04-25T18:20:00.000Z",
+    updated_at: "2026-04-25T18:20:00.000Z",
+  });
+
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({
+      url,
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (url.endsWith("/upload-file")) {
+      return new Response(JSON.stringify({ media_url: `https://cdn.sendblue.test/image-${calls.length}.png` }), { status: 200 });
+    }
+    if (url.includes("/evaluate-service")) {
+      return new Response(JSON.stringify({ number: "+15551234567", service: "SMS" }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ status: "QUEUED", message_handle: `message-${calls.length}` }), { status: 200 });
+  };
+  try {
+    const status = await handleRequest(req(`/threads/${threadId}/status`, {
+      method: "POST",
+      headers: { authorization: "Bearer dev-token" },
+      body: JSON.stringify({
+        cwd: "/tmp/project",
+        generatedImages: [generatedImage("first.png"), generatedImage("second.png")],
+        status: "stopped",
+        createdAt: "2026-04-25T18:25:00.000Z",
+      }),
+    }), testEnv);
+    assert.equal(status.status, 200);
+    assert.deepEqual(calls.map((call) => call.url), [
+      "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
+      "https://api.sendblue.test/api/send-message",
+      "https://api.sendblue.test/api/send-message",
+    ]);
+    assert.deepEqual(calls[3]?.body, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      media_url: "https://cdn.sendblue.test/image-1.png",
+    });
+    assert.deepEqual(calls[4]?.body, {
+      number: "+15551234567",
+      from_number: "+12344198201",
+      media_url: "https://cdn.sendblue.test/image-2.png",
+    });
+    assert.equal((await notification(status)).messageHandle, "message-5");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends multiple generated images separately when service lookup fails", async () => {
+  const testEnv = env();
+  const threadId = await register(testEnv);
+  const db = testEnv.DB as unknown as FakeD1Database;
+  db.phoneBindings.set("+15551234567", {
+    phone_number: "+15551234567",
+    owner_id: DEV_OWNER_ID,
+    active_thread_id: threadId,
+    contact_card_sent_at: null,
+    created_at: "2026-04-25T18:20:00.000Z",
+    updated_at: "2026-04-25T18:20:00.000Z",
+  });
+
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({
+      url,
+      body: init?.body instanceof FormData ? "form-data" : init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (url.endsWith("/upload-file")) {
+      return new Response(JSON.stringify({ media_url: `https://cdn.sendblue.test/image-${calls.length}.png` }), { status: 200 });
+    }
+    if (url.includes("/evaluate-service")) {
+      return new Response(JSON.stringify({ status: "ERROR" }), { status: 500 });
+    }
+    return new Response(JSON.stringify({ status: "QUEUED", message_handle: `message-${calls.length}` }), { status: 200 });
+  };
+  try {
+    const status = await handleRequest(req(`/threads/${threadId}/status`, {
+      method: "POST",
+      headers: { authorization: "Bearer dev-token" },
+      body: JSON.stringify({
+        cwd: "/tmp/project",
+        generatedImages: [generatedImage("first.png"), generatedImage("second.png")],
+        status: "stopped",
+        createdAt: "2026-04-25T18:25:00.000Z",
+      }),
+    }), testEnv);
+    assert.equal(status.status, 200);
+    assert.deepEqual(calls.map((call) => call.url), [
+      "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/upload-file",
+      "https://api.sendblue.test/api/evaluate-service?number=%2B15551234567",
+      "https://api.sendblue.test/api/send-message",
+      "https://api.sendblue.test/api/send-message",
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

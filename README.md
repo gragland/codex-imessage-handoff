@@ -1,9 +1,9 @@
 # Codex iMessage Handoff
 
-iMessage Handoff lets you continue a local Codex thread from iMessage. It has two parts:
+iMessage Handoff lets you continue a local Codex thread from iMessage or via SMS. It has two parts:
 
 - `imessage-handoff`: the installable Codex skill.
-- `relay`: a relay that connects Codex with iMessage (use our hosted relay or deploy your own).
+- `relay`: a relay that connects Codex with Messages through Sendblue (use our hosted relay or deploy your own).
 
 <img width="1836" height="508" alt="image 1" src="https://github.com/user-attachments/assets/c1bacc76-a832-4de2-8a77-ded1e319dde3" />
 
@@ -23,7 +23,7 @@ $imessage-handoff
 
 On first use, Codex asks whether you want the hosted iMessage relay or your own relay, then asks permission to install the Codex Stop hook used to forward responses and wait for iMessage replies. Restart Codex once after the hook is installed.
 
-If this is your first time, Codex prints a pairing code. Text that code to the phone number shown by Codex within 15 minutes. After that, text normal instructions from iMessage.
+If this is your first time, Codex prints a pairing code. Text that code to the phone number shown by Codex within 15 minutes. After that, text normal instructions from iMessage or SMS.
 
 ## How It Works
 
@@ -32,9 +32,9 @@ If this is your first time, Codex prints a pairing code. Text that code to the p
 3. `$imessage-handoff` registers the current `CODEX_THREAD_ID` with the relay.
 4. When you text the pairing code, the relay links that local token to your phone number.
 5. The local Stop hook waits on a WebSocket connection to the relay.
-6. When an iMessage arrives from your paired phone, the relay wakes the waiting hook, the hook claims the message, and Codex continues the original thread.
-7. For longer iMessage handoff tasks, Codex is prompted to send occasional short progress updates through the relay.
-8. Codex results are forwarded to iMessage through Sendblue.
+6. When a message arrives from your paired phone, the relay wakes the waiting hook, the hook claims the message, and Codex continues the original thread.
+7. For longer handoff tasks, Codex is prompted to send occasional short progress updates through the relay.
+8. Codex results are forwarded through Sendblue, using iMessage when available and SMS fallback otherwise.
 
 The local Stop hook maintains a WebSocket connection with the relay while it waits for iMessage input.
 
