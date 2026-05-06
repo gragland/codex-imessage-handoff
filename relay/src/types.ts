@@ -7,7 +7,6 @@ export interface Env {
   SENDBLUE_WEBHOOK_SECRET?: string;
   SENDBLUE_FROM_NUMBER?: string;
   SENDBLUE_API_BASE_URL?: string;
-  SENDBLUE_TYPING_DELAY_MS?: string;
 }
 
 export type HandoffReplyStatus = "pending" | "applied";

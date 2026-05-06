@@ -1,6 +1,8 @@
 import { CODEX_CONTACT_IMAGE_BASE64 } from "./contact-card-image.ts";
 import type { Env, PairingAttemptLimitRow, PhoneBindingRow, HandoffReplyRow, HandoffThreadRow } from "./types.ts";
 
+type WaitUntilContext = Pick<ExecutionContext, "waitUntil">;
+
 // The relay is intentionally small: one Worker file handles registration,
 // Sendblue webhooks, local Codex WebSockets, and outbound Sendblue sends.
 // Durable storage is only for routing metadata; message content is kept in the
@@ -440,10 +442,6 @@ function isoFromMs(ms: number) {
 function clientIp(request: Request) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return request.headers.get("cf-connecting-ip")?.trim() || forwardedFor || "unknown";
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function makeId(prefix: string) {
@@ -909,15 +907,6 @@ function sendblueAuthOnlyHeaders(env: Env) {
   };
 }
 
-function sendblueTypingDelayMs(env: Env) {
-  const raw = env.SENDBLUE_TYPING_DELAY_MS;
-  if (raw === undefined || raw === null || raw === "") {
-    return 2000;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2000;
-}
-
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1189,10 +1178,7 @@ async function sendStatusNotification(
   // A Stop hook status can be text, generated images, or both. Carousels are
   // iMessage-only, so non-iMessage recipients get separate media messages.
   const formattedText = lastAssistantMessage ? formatForSendblue(lastAssistantMessage) : null;
-  const mediaUrls = [];
-  for (const image of images) {
-    mediaUrls.push(await uploadSendblueMedia(env, image));
-  }
+  const mediaUrls = await Promise.all(images.map((image) => uploadSendblueMedia(env, image)));
 
   if (mediaUrls.length === 0) {
     return formattedText ? sendSendblueMessage(env, number, formattedText) : null;
@@ -1311,7 +1297,7 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
   return json({ ok: true, notification });
 }
 
-async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
+async function handleClaim(request: Request, env: Env, threadId: string, replyId: string, ctx?: WaitUntilContext) {
   // Claim returns exactly one remote prompt to local Codex and marks it applied.
   // The typing indicator is best-effort; Sendblue delivers it only for iMessage.
   const ownerId = await requireOwnerId(request);
@@ -1324,17 +1310,21 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
     return claim;
   }
   const body = await claim.json() as { ok?: boolean; reply?: unknown };
-  const binding = await findPhoneForThread(env, threadId);
-  if (binding) {
+  const typingIndicator = (async () => {
+    const binding = await findPhoneForThread(env, threadId);
+    if (!binding) {
+      return;
+    }
     try {
-      const delayMs = sendblueTypingDelayMs(env);
-      if (delayMs > 0) {
-        await sleep(delayMs);
-      }
       await sendSendblueTypingIndicator(env, binding.phone_number);
     } catch {
       console.warn("Sendblue typing indicator failed.");
     }
+  })();
+  // Tests can call the handler without a Worker context. The promise is caught
+  // above either way; in production, waitUntil keeps it alive after the response.
+  if (ctx) {
+    ctx.waitUntil(typingIndicator);
   }
   return json(body);
 }
@@ -1368,7 +1358,7 @@ function relaySocket(env: Env) {
   return env.HANDOFF_SOCKET.get(env.HANDOFF_SOCKET.idFromName("global"));
 }
 
-async function handleSendblueWebhook(request: Request, env: Env, ctx?: ExecutionContext) {
+async function handleSendblueWebhook(request: Request, env: Env, ctx?: WaitUntilContext) {
   // Sendblue calls this for inbound and outbound events. We only care about
   // inbound RECEIVED messages from a phone number, and we require a shared secret.
   const expectedSecret = env.SENDBLUE_WEBHOOK_SECRET?.trim();
@@ -1586,7 +1576,7 @@ async function handleThreadEvents(request: Request, env: Env, threadId: string) 
   return env.HANDOFF_SOCKET.get(id).fetch(request);
 }
 
-export async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext) {
+export async function handleRequest(request: Request, env: Env, ctx?: WaitUntilContext) {
   // Thin router. Keeping routes explicit makes the public surface easy to audit.
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: JSON_HEADERS });
@@ -1648,7 +1638,7 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
         parts[4] === "claim" &&
         parts.length === 5
       ) {
-        return await handleClaim(request, env, threadId, parts[3]);
+        return await handleClaim(request, env, threadId, parts[3], ctx);
       }
       if (request.method === "GET" && parts.length === 2) {
         return await handleGetThread(request, env, threadId);
