@@ -495,6 +495,24 @@ async function findThread(env: Env, threadId: string) {
     .first<HandoffThreadRow>();
 }
 
+function isMissingPairingCodeExpirationError(caught: unknown) {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  return message.includes("handoff_threads has no column named pairing_code_expires_at");
+}
+
+async function repairPairingSchema(env: Env) {
+  await env.DB.prepare("ALTER TABLE handoff_threads ADD COLUMN pairing_code_expires_at TEXT").run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS pairing_attempt_limits (
+      phone_number TEXT PRIMARY KEY,
+      failed_count INTEGER NOT NULL,
+      window_start_at TEXT NOT NULL,
+      blocked_until TEXT,
+      updated_at TEXT NOT NULL
+    )`,
+  ).run();
+}
+
 function assertAuthorized(thread: HandoffThreadRow | null, ownerId: string) {
   if (!thread) {
     throw Object.assign(new Error("Thread not found."), { status: 404 });
@@ -546,7 +564,7 @@ async function handleRegister(request: Request, env: Env, threadId: string) {
   const pairingCodeExpiresAt = pairingRequired ? isoFromMs(Date.now() + PAIRING_CODE_TTL_MS) : null;
   const createdAt = nowIso();
 
-  await env.DB.prepare(
+  const registerThread = () => env.DB.prepare(
     `INSERT INTO handoff_threads (
       id, owner_id, cwd, title, handoff_summary, status, handoff_enabled, pairing_code,
       pairing_code_expires_at, last_stop_at, created_at, updated_at
@@ -562,6 +580,16 @@ async function handleRegister(request: Request, env: Env, threadId: string) {
       pairing_code_expires_at = excluded.pairing_code_expires_at,
       updated_at = excluded.updated_at`,
   ).bind(threadId, ownerId, cwd, title, handoffSummary, pairingCode, pairingCodeExpiresAt, createdAt, createdAt).run();
+
+  try {
+    await registerThread();
+  } catch (caught) {
+    if (!isMissingPairingCodeExpirationError(caught)) {
+      throw caught;
+    }
+    await repairPairingSchema(env);
+    await registerThread();
+  }
 
   await env.DB.prepare(
     "UPDATE handoff_threads SET pairing_code = NULL, pairing_code_expires_at = NULL, updated_at = ? WHERE owner_id = ? AND id != ?",

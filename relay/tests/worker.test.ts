@@ -54,13 +54,28 @@ class FakeD1Database {
   threads = new Map<string, HandoffThreadRow>();
   phoneBindings = new Map<string, PhoneBindingRow>();
   pairingAttemptLimits = new Map<string, PairingAttemptLimitRow>();
+  missingPairingCodeExpiresAt = false;
+  repairedMissingPairingCodeExpiresAt = false;
 
   prepare(sql: string) {
     return new FakeStatement(this, sql);
   }
 
   run(sql: string, values: unknown[]) {
+    if (sql.includes("ALTER TABLE handoff_threads ADD COLUMN pairing_code_expires_at")) {
+      this.missingPairingCodeExpiresAt = false;
+      this.repairedMissingPairingCodeExpiresAt = true;
+      return { meta: { changes: 0 } };
+    }
+
+    if (sql.includes("CREATE TABLE IF NOT EXISTS pairing_attempt_limits")) {
+      return { meta: { changes: 0 } };
+    }
+
     if (sql.includes("INSERT INTO handoff_threads")) {
+      if (this.missingPairingCodeExpiresAt) {
+        throw new Error("D1_ERROR: table handoff_threads has no column named pairing_code_expires_at: SQLITE_ERROR");
+      }
       const [id, ownerId, cwd, title, handoffSummary, pairingCode, pairingCodeExpiresAt, createdAt, updatedAt] = values as string[];
       const existing = this.threads.get(id);
       this.threads.set(id, {
@@ -462,6 +477,18 @@ test("creates and upserts a handoff thread with an explicit id", async () => {
   assert.equal(body.handoffSummary, "You were reviewing iMessage handoff copy.");
   assert.equal(body.status, "enabled");
   assert.equal(body.handoffEnabled, true);
+});
+
+test("register repairs older D1 schemas missing pairing code expiration", async () => {
+  const testEnv = env();
+  const db = testEnv.DB as unknown as FakeD1Database;
+  db.missingPairingCodeExpiresAt = true;
+
+  const threadId = await register(testEnv);
+  const thread = db.threads.get(threadId);
+
+  assert.equal(db.repairedMissingPairingCodeExpiresAt, true);
+  assert.equal(typeof thread?.pairing_code_expires_at, "string");
 });
 
 test("limits enabled handoff threads per owner", async () => {
