@@ -48,8 +48,10 @@ Before starting, you need a Cloudflare account, a Sendblue account with a messag
 8. Deploy.
 
    ```bash
-   pnpm exec wrangler deploy
+   pnpm run deploy
    ```
+
+   This applies any pending remote D1 migrations before publishing Worker code.
 
 9. In Sendblue, set the inbound webhook URL to:
 
@@ -85,7 +87,7 @@ After choosing a domain, add a Cloudflare custom domain route to `wrangler.jsonc
 ]
 ```
 
-Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook URL to the custom domain.
+Then redeploy with `pnpm run deploy` and update the Sendblue webhook URL to the custom domain.
 
 ## API Summary
 
