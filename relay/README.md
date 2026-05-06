@@ -48,8 +48,12 @@ Before starting, you need a Cloudflare account, a Sendblue account with a messag
 8. Deploy.
 
    ```bash
-   pnpm exec wrangler deploy
+   pnpm run deploy:remote
    ```
+
+   This deploy script applies any pending remote D1 migrations before publishing
+   Worker code. Use it for future hosted relay deploys too, so the Worker never
+   rolls out ahead of its routing metadata schema.
 
 9. In Sendblue, set the inbound webhook URL to:
 
@@ -97,6 +101,7 @@ Then redeploy with `pnpm exec wrangler deploy` and update the Sendblue webhook U
 - `GET /threads/:threadId`: returns thread routing metadata.
 - `POST /threads/:threadId/stop`: disables iMessage handoff for a thread.
 - `POST /webhooks/sendblue`: receives Sendblue inbound events.
+- `GET /health`: checks relay readiness, including required D1 tables and columns.
 
 All non-webhook thread APIs use `Authorization: Bearer <token>`. When a user pairs by texting the code within 15 minutes, the relay links that token to their phone number. Failed code-shaped pairing attempts from the same phone number are rate-limited.
 

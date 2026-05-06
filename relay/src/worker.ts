@@ -27,6 +27,37 @@ const PAIRING_ATTEMPT_WINDOW_MS = 60 * 60 * 1000;
 const PAIRING_ATTEMPT_BLOCK_MS = 30 * 60 * 1000;
 const MAX_PAIRING_FAILURES_PER_WINDOW = 5;
 const INVALID_PAIRING_CODE_MESSAGE = "That pairing code is invalid or expired. Start iMessage Handoff again in Codex to get a fresh code.";
+const REQUIRED_D1_SCHEMA = {
+  handoff_threads: [
+    "id",
+    "owner_id",
+    "cwd",
+    "title",
+    "handoff_summary",
+    "status",
+    "handoff_enabled",
+    "pairing_code",
+    "pairing_code_expires_at",
+    "last_stop_at",
+    "created_at",
+    "updated_at",
+  ],
+  pairing_attempt_limits: [
+    "phone_number",
+    "failed_count",
+    "window_start_at",
+    "blocked_until",
+    "updated_at",
+  ],
+  phone_bindings: [
+    "phone_number",
+    "owner_id",
+    "active_thread_id",
+    "contact_card_sent_at",
+    "created_at",
+    "updated_at",
+  ],
+} as const;
 
 // Abuse controls are deliberately boring. Sendblue is billed per phone number,
 // so the practical hosted-relay risk is oversized payloads and noisy request
@@ -361,6 +392,64 @@ function json(data: unknown, init: ResponseInit = {}) {
 
 function error(status: number, message: string) {
   return json({ error: message }, { status });
+}
+
+async function handleHealth(env: Env) {
+  try {
+    const database = await checkD1Schema(env);
+    if (!database.ok) {
+      return json({
+        ok: false,
+        service: "imessage-handoff",
+        error: "D1 schema is out of date. Apply relay migrations before deploying.",
+        database,
+      }, { status: 503 });
+    }
+    return json({ ok: true, service: "imessage-handoff", database });
+  } catch (caught) {
+    return json({
+      ok: false,
+      service: "imessage-handoff",
+      error: "D1 schema check failed.",
+      database: {
+        ok: false,
+        message: caught instanceof Error ? caught.message : String(caught),
+      },
+    }, { status: 503 });
+  }
+}
+
+async function checkD1Schema(env: Env) {
+  const missingColumns: string[] = [];
+  const missingTables: string[] = [];
+
+  for (const [tableName, requiredColumns] of Object.entries(REQUIRED_D1_SCHEMA)) {
+    const columns = await d1TableColumns(env, tableName);
+    if (columns.size === 0) {
+      missingTables.push(tableName);
+      continue;
+    }
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) {
+        missingColumns.push(`${tableName}.${column}`);
+      }
+    }
+  }
+
+  return {
+    ok: missingTables.length === 0 && missingColumns.length === 0,
+    missingColumns,
+    missingTables,
+  };
+}
+
+async function d1TableColumns(env: Env, tableName: string) {
+  const result = await env.DB.prepare(`PRAGMA table_info(${tableName})`).all<{ name?: string }>();
+  return new Set(
+    (result.results ?? [])
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === "string" && Boolean(name)),
+  );
 }
 
 function requestTooLarge(message: string) {
@@ -1596,8 +1685,12 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
   const parts = url.pathname.split("/").filter(Boolean);
 
   try {
-    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
+    if (request.method === "GET" && url.pathname === "/") {
       return json({ ok: true, service: "imessage-handoff" });
+    }
+
+    if (request.method === "GET" && url.pathname === "/health") {
+      return await handleHealth(env);
     }
 
     if (request.method === "GET" && url.pathname === `/${CONTACT_CARD_FILENAME}`) {

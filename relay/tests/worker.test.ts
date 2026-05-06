@@ -54,6 +54,37 @@ class FakeD1Database {
   threads = new Map<string, HandoffThreadRow>();
   phoneBindings = new Map<string, PhoneBindingRow>();
   pairingAttemptLimits = new Map<string, PairingAttemptLimitRow>();
+  schemaColumns: Record<string, Set<string>> = {
+    handoff_threads: new Set([
+      "id",
+      "owner_id",
+      "cwd",
+      "title",
+      "handoff_summary",
+      "status",
+      "handoff_enabled",
+      "pairing_code",
+      "pairing_code_expires_at",
+      "last_stop_at",
+      "created_at",
+      "updated_at",
+    ]),
+    pairing_attempt_limits: new Set([
+      "phone_number",
+      "failed_count",
+      "window_start_at",
+      "blocked_until",
+      "updated_at",
+    ]),
+    phone_bindings: new Set([
+      "phone_number",
+      "owner_id",
+      "active_thread_id",
+      "contact_card_sent_at",
+      "created_at",
+      "updated_at",
+    ]),
+  };
 
   prepare(sql: string) {
     return new FakeStatement(this, sql);
@@ -249,6 +280,21 @@ class FakeD1Database {
   }
 
   all<T>(sql: string, values: unknown[]) {
+    if (sql.startsWith("PRAGMA table_info(")) {
+      const tableName = sql.match(/^PRAGMA table_info\(([^)]+)\)$/)?.[1] ?? "";
+      const columns = this.schemaColumns[tableName] ?? new Set<string>();
+      return {
+        results: [...columns].map((name, index) => ({
+          cid: index,
+          name,
+          type: "TEXT",
+          notnull: 0,
+          dflt_value: null,
+          pk: 0,
+        })) as T[],
+      };
+    }
+
     if (sql.includes("FROM handoff_threads") && sql.includes("handoff_enabled = 1")) {
       const ownerId = String(values[0]);
       const results = [...this.threads.values()]
@@ -391,6 +437,35 @@ test("creates install tokens", async () => {
   const body = await json(response);
   assert.equal(typeof body.token, "string");
   assert.match(String(body.token), /^ih_[a-f0-9]{64}$/);
+});
+
+test("health checks D1 schema readiness", async () => {
+  const testEnv = env();
+  const response = await handleRequest(req("/health"), testEnv);
+  assert.equal(response.status, 200);
+  const body = await json(response);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.database, {
+    ok: true,
+    missingColumns: [],
+    missingTables: [],
+  });
+});
+
+test("health reports unapplied D1 migrations", async () => {
+  const testEnv = env();
+  (testEnv.DB as unknown as FakeD1Database).schemaColumns.handoff_threads.delete("pairing_code_expires_at");
+
+  const response = await handleRequest(req("/health"), testEnv);
+  assert.equal(response.status, 503);
+  const body = await json(response);
+  assert.equal(body.ok, false);
+  assert.equal(body.error, "D1 schema is out of date. Apply relay migrations before deploying.");
+  assert.deepEqual(body.database, {
+    ok: false,
+    missingColumns: ["handoff_threads.pairing_code_expires_at"],
+    missingTables: [],
+  });
 });
 
 test("rate limits installation token creation by client IP", async () => {
