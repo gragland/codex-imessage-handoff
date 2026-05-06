@@ -10,7 +10,6 @@ declare namespace Cloudflare {
 		DB: D1Database;
 		SENDBLUE_FROM_NUMBER: "+12344198201";
 		SENDBLUE_API_BASE_URL: "https://api.sendblue.com/api";
-		SENDBLUE_TYPING_DELAY_MS: "2000";
 		HANDOFF_SOCKET: DurableObjectNamespace<import("./src/worker").HandoffSocket>;
 	}
 }
@@ -19,7 +18,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SENDBLUE_FROM_NUMBER" | "SENDBLUE_API_BASE_URL" | "SENDBLUE_TYPING_DELAY_MS">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SENDBLUE_FROM_NUMBER" | "SENDBLUE_API_BASE_URL">> {}
 }
 
 // Begin runtime types

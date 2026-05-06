@@ -273,7 +273,6 @@ function env() {
     SENDBLUE_WEBHOOK_SECRET: "webhook-secret",
     SENDBLUE_FROM_NUMBER: "+12344198201",
     SENDBLUE_API_BASE_URL: "https://api.sendblue.test/api",
-    SENDBLUE_TYPING_DELAY_MS: "0",
   } satisfies Env;
   attachRelayBuffer(testEnv);
   return testEnv;
@@ -867,15 +866,19 @@ test("relay buffer keeps inbound message content out of D1", async () => {
   const replyId = body.replyId;
   assert.equal(typeof replyId, "string");
   const originalFetch = globalThis.fetch;
+  const waitUntilPromises: Promise<unknown>[] = [];
   globalThis.fetch = async () => new Response(JSON.stringify({ status: "SENT", message_handle: "typing-1" }), { status: 200 });
   try {
     const claim = await handleRequest(req(`/threads/${threadId}/replies/${replyId}/claim`, {
       method: "POST",
       headers: { authorization: "Bearer dev-token" },
-    }), testEnv);
+    }), testEnv, {
+      waitUntil: (promise) => waitUntilPromises.push(promise),
+    });
     assert.equal(claim.status, 200);
     const claimBody = await json(claim) as { reply: { body: string } };
     assert.equal(claimBody.reply.body, "What is buffered?");
+    await Promise.all(waitUntilPromises);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -940,12 +943,15 @@ test("multi-image sendblue webhooks claim as one grouped reply after quiet windo
   assert.equal(typeof firstReplyId, "string");
 
   const originalFetch = globalThis.fetch;
+  const waitUntilPromises: Promise<unknown>[] = [];
   globalThis.fetch = async () => new Response(JSON.stringify({ status: "SENT" }), { status: 200 });
   try {
     const claim = await handleRequest(req(`/threads/${threadId}/replies/${firstReplyId}/claim`, {
       method: "POST",
       headers: { authorization: "Bearer dev-token" },
-    }), testEnv);
+    }), testEnv, {
+      waitUntil: (promise) => waitUntilPromises.push(promise),
+    });
     assert.equal(claim.status, 200);
     const claimBody = await json(claim) as { reply: { body: string; media: Array<{ url: string }> } };
     assert.equal(claimBody.reply.body, "Compare these");
@@ -953,6 +959,7 @@ test("multi-image sendblue webhooks claim as one grouped reply after quiet windo
       { url: "https://cdn.example.test/one.png" },
       { url: "https://cdn.example.test/two.png" },
     ]);
+    await Promise.all(waitUntilPromises);
     const tombstones = relayReplies(testEnv).filter((reply) => reply.media_group_id === "group");
     assert.deepEqual(tombstones.map((reply) => ({ status: reply.status, body: reply.body, media: reply.media })), [
       { status: "applied", body: "", media: null },
@@ -1445,6 +1452,7 @@ test("claims a pending reply exactly once", async () => {
 
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const waitUntilPromises: Promise<unknown>[] = [];
   globalThis.fetch = async (input, init) => {
     calls.push({
       url: String(input),
@@ -1456,9 +1464,13 @@ test("claims a pending reply exactly once", async () => {
     const claim = await handleRequest(req(`/threads/${threadId}/replies/${replyId}/claim`, {
       method: "POST",
       headers: { authorization: "Bearer dev-token" },
-    }), testEnv);
+    }), testEnv, {
+      waitUntil: (promise) => waitUntilPromises.push(promise),
+    });
     assert.equal(claim.status, 200);
     assert.equal((await json(claim)).ok, true);
+    assert.equal(waitUntilPromises.length, 1);
+    await Promise.all(waitUntilPromises);
     assert.deepEqual(calls, [{
       url: "https://api.sendblue.test/api/send-typing-indicator",
       body: {
