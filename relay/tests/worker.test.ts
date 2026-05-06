@@ -273,7 +273,6 @@ function env() {
     SENDBLUE_WEBHOOK_SECRET: "webhook-secret",
     SENDBLUE_FROM_NUMBER: "+12344198201",
     SENDBLUE_API_BASE_URL: "https://api.sendblue.test/api",
-    SENDBLUE_TYPING_DELAY_MS: "0",
   } satisfies Env;
   attachRelayBuffer(testEnv);
   return testEnv;
@@ -1445,6 +1444,7 @@ test("claims a pending reply exactly once", async () => {
 
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const waitUntilPromises: Promise<unknown>[] = [];
   globalThis.fetch = async (input, init) => {
     calls.push({
       url: String(input),
@@ -1456,9 +1456,15 @@ test("claims a pending reply exactly once", async () => {
     const claim = await handleRequest(req(`/threads/${threadId}/replies/${replyId}/claim`, {
       method: "POST",
       headers: { authorization: "Bearer dev-token" },
-    }), testEnv);
+    }), testEnv, {
+      waitUntil(promise: Promise<unknown>) {
+        waitUntilPromises.push(promise);
+      },
+    } as unknown as ExecutionContext);
     assert.equal(claim.status, 200);
     assert.equal((await json(claim)).ok, true);
+    assert.equal(waitUntilPromises.length, 1);
+    await Promise.all(waitUntilPromises);
     assert.deepEqual(calls, [{
       url: "https://api.sendblue.test/api/send-typing-indicator",
       body: {

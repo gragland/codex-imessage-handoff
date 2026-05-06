@@ -442,10 +442,6 @@ function clientIp(request: Request) {
   return request.headers.get("cf-connecting-ip")?.trim() || forwardedFor || "unknown";
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function makeId(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
@@ -909,15 +905,6 @@ function sendblueAuthOnlyHeaders(env: Env) {
   };
 }
 
-function sendblueTypingDelayMs(env: Env) {
-  const raw = env.SENDBLUE_TYPING_DELAY_MS;
-  if (raw === undefined || raw === null || raw === "") {
-    return 2000;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2000;
-}
-
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1189,10 +1176,7 @@ async function sendStatusNotification(
   // A Stop hook status can be text, generated images, or both. Carousels are
   // iMessage-only, so non-iMessage recipients get separate media messages.
   const formattedText = lastAssistantMessage ? formatForSendblue(lastAssistantMessage) : null;
-  const mediaUrls = [];
-  for (const image of images) {
-    mediaUrls.push(await uploadSendblueMedia(env, image));
-  }
+  const mediaUrls = await Promise.all(images.map((image) => uploadSendblueMedia(env, image)));
 
   if (mediaUrls.length === 0) {
     return formattedText ? sendSendblueMessage(env, number, formattedText) : null;
@@ -1311,7 +1295,7 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
   return json({ ok: true, notification });
 }
 
-async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
+async function handleClaim(request: Request, env: Env, threadId: string, replyId: string, ctx?: ExecutionContext) {
   // Claim returns exactly one remote prompt to local Codex and marks it applied.
   // The typing indicator is best-effort; Sendblue delivers it only for iMessage.
   const ownerId = await requireOwnerId(request);
@@ -1324,17 +1308,21 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
     return claim;
   }
   const body = await claim.json() as { ok?: boolean; reply?: unknown };
-  const binding = await findPhoneForThread(env, threadId);
-  if (binding) {
+  const typingIndicator = (async () => {
+    const binding = await findPhoneForThread(env, threadId);
+    if (!binding) {
+      return;
+    }
     try {
-      const delayMs = sendblueTypingDelayMs(env);
-      if (delayMs > 0) {
-        await sleep(delayMs);
-      }
       await sendSendblueTypingIndicator(env, binding.phone_number);
     } catch {
       console.warn("Sendblue typing indicator failed.");
     }
+  })();
+  if (ctx) {
+    ctx.waitUntil(typingIndicator);
+  } else {
+    await typingIndicator;
   }
   return json(body);
 }
@@ -1648,7 +1636,7 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
         parts[4] === "claim" &&
         parts.length === 5
       ) {
-        return await handleClaim(request, env, threadId, parts[3]);
+        return await handleClaim(request, env, threadId, parts[3], ctx);
       }
       if (request.method === "GET" && parts.length === 2) {
         return await handleGetThread(request, env, threadId);
