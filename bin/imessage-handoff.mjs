@@ -97,8 +97,11 @@ function isImessageHandoffStopHook(command) {
   }
   const normalized = command.replace(/\\/g, "/");
   return normalized.includes("/imessage-handoff/scripts/publish-stop.js")
+    || normalized.includes("/imessage-handoff/scripts/run-publish-stop.cmd")
     || normalized.includes("/.agents/skills/imessage-handoff/scripts/publish-stop.js")
-    || normalized.includes("/.codex/skills/imessage-handoff/scripts/publish-stop.js");
+    || normalized.includes("/.agents/skills/imessage-handoff/scripts/run-publish-stop.cmd")
+    || normalized.includes("/.codex/skills/imessage-handoff/scripts/publish-stop.js")
+    || normalized.includes("/.codex/skills/imessage-handoff/scripts/run-publish-stop.cmd");
 }
 
 function install() {
