@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "db:migrate:remote": "wrangler d1 migrations apply imessage-handoff --remote",
     "dev": "wrangler dev",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "deploy": "wrangler deploy",
+    "deploy": "pnpm run db:migrate:remote && wrangler deploy",
     "types": "wrangler types"
   },
   "dependencies": {},
