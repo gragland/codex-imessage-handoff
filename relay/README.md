@@ -71,7 +71,7 @@ Before starting, you need a Cloudflare account, a Sendblue account with a messag
 
 - `SENDBLUE_FROM_NUMBER`
 - `SENDBLUE_API_BASE_URL`
-- `SENDBLUE_TYPING_DELAY_MS`
+- `SENDBLUE_TYPING_DELAY_MS` controls the optional typing indicator after Codex claims an inbound reply. It defaults to `0` so typing indicators never slow prompt delivery to Codex.
 
 For self-hosting, change `SENDBLUE_FROM_NUMBER` to your Sendblue number before deploying. `SENDBLUE_API_BASE_URL` should usually stay as-is. Secrets must be configured with `wrangler secret put`.
 

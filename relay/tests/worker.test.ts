@@ -514,14 +514,6 @@ test("proxies authorized thread websocket upgrades to the Durable Object", async
   assert.deepEqual(calls, [
     {
       name: "global",
-      url: "https://imessage-handoff.internal/rate-limit",
-    },
-    {
-      name: "global",
-      url: "https://imessage-handoff.internal/rate-limit",
-    },
-    {
-      name: "global",
       url: `https://imessage-handoff.test/threads/${threadId}/events?token=dev-token`,
     },
   ]);
@@ -1445,6 +1437,7 @@ test("claims a pending reply exactly once", async () => {
 
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const waitUntilPromises: Promise<unknown>[] = [];
   globalThis.fetch = async (input, init) => {
     calls.push({
       url: String(input),
@@ -1456,9 +1449,15 @@ test("claims a pending reply exactly once", async () => {
     const claim = await handleRequest(req(`/threads/${threadId}/replies/${replyId}/claim`, {
       method: "POST",
       headers: { authorization: "Bearer dev-token" },
-    }), testEnv);
+    }), testEnv, {
+      waitUntil(promise: Promise<unknown>) {
+        waitUntilPromises.push(promise);
+      },
+    } as unknown as ExecutionContext);
     assert.equal(claim.status, 200);
     assert.equal((await json(claim)).ok, true);
+    assert.equal(waitUntilPromises.length, 1);
+    await Promise.all(waitUntilPromises);
     assert.deepEqual(calls, [{
       url: "https://api.sendblue.test/api/send-typing-indicator",
       body: {

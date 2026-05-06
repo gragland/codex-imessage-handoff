@@ -912,10 +912,10 @@ function sendblueAuthOnlyHeaders(env: Env) {
 function sendblueTypingDelayMs(env: Env) {
   const raw = env.SENDBLUE_TYPING_DELAY_MS;
   if (raw === undefined || raw === null || raw === "") {
-    return 2000;
+    return 0;
   }
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2000;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -1189,10 +1189,7 @@ async function sendStatusNotification(
   // A Stop hook status can be text, generated images, or both. Carousels are
   // iMessage-only, so non-iMessage recipients get separate media messages.
   const formattedText = lastAssistantMessage ? formatForSendblue(lastAssistantMessage) : null;
-  const mediaUrls = [];
-  for (const image of images) {
-    mediaUrls.push(await uploadSendblueMedia(env, image));
-  }
+  const mediaUrls = await Promise.all(images.map((image) => uploadSendblueMedia(env, image)));
 
   if (mediaUrls.length === 0) {
     return formattedText ? sendSendblueMessage(env, number, formattedText) : null;
@@ -1311,9 +1308,22 @@ async function handleStatus(request: Request, env: Env, threadId: string) {
   return json({ ok: true, notification });
 }
 
-async function handleClaim(request: Request, env: Env, threadId: string, replyId: string) {
+async function sendTypingIndicatorAfterClaim(env: Env, threadId: string) {
+  const binding = await findPhoneForThread(env, threadId);
+  if (!binding) {
+    return;
+  }
+  const delayMs = sendblueTypingDelayMs(env);
+  if (delayMs > 0) {
+    await sleep(delayMs);
+  }
+  await sendSendblueTypingIndicator(env, binding.phone_number);
+}
+
+async function handleClaim(request: Request, env: Env, threadId: string, replyId: string, ctx?: ExecutionContext) {
   // Claim returns exactly one remote prompt to local Codex and marks it applied.
-  // The typing indicator is best-effort; Sendblue delivers it only for iMessage.
+  // The typing indicator is best-effort and must not delay local Codex from
+  // receiving the prompt. Sendblue delivers it only for iMessage.
   const ownerId = await requireOwnerId(request);
   assertAuthorized(await findThread(env, threadId), ownerId);
   const claim = await relaySocket(env)
@@ -1324,17 +1334,11 @@ async function handleClaim(request: Request, env: Env, threadId: string, replyId
     return claim;
   }
   const body = await claim.json() as { ok?: boolean; reply?: unknown };
-  const binding = await findPhoneForThread(env, threadId);
-  if (binding) {
-    try {
-      const delayMs = sendblueTypingDelayMs(env);
-      if (delayMs > 0) {
-        await sleep(delayMs);
-      }
-      await sendSendblueTypingIndicator(env, binding.phone_number);
-    } catch {
-      console.warn("Sendblue typing indicator failed.");
-    }
+  const typingIndicator = sendTypingIndicatorAfterClaim(env, threadId).catch(() => {
+    console.warn("Sendblue typing indicator failed.");
+  });
+  if (ctx) {
+    ctx.waitUntil(typingIndicator);
   }
   return json(body);
 }
@@ -1621,6 +1625,9 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
 
     if (parts[0] === "threads" && parts[1]) {
       const threadId = parts[1];
+      if (request.method === "GET" && parts[2] === "events" && parts.length === 3) {
+        return await handleThreadEvents(request, env, threadId);
+      }
       // Thread APIs are authenticated, but an attacker can still send random
       // bearer tokens. Use both IP and owner buckets: IP slows random-token
       // spray, owner slows one real token from hammering expensive routes.
@@ -1628,9 +1635,6 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
       const token = authTokenFromRequestOrUrl(request);
       if (token) {
         await enforceRequestRateLimit(env, `owner:${await ownerIdFromToken(token)}`, MAX_OWNER_REQUESTS_PER_WINDOW);
-      }
-      if (request.method === "GET" && parts[2] === "events" && parts.length === 3) {
-        return await handleThreadEvents(request, env, threadId);
       }
       if (request.method === "POST" && parts.length === 2) {
         return await handleRegister(request, env, threadId);
@@ -1648,7 +1652,7 @@ export async function handleRequest(request: Request, env: Env, ctx?: ExecutionC
         parts[4] === "claim" &&
         parts.length === 5
       ) {
-        return await handleClaim(request, env, threadId, parts[3]);
+        return await handleClaim(request, env, threadId, parts[3], ctx);
       }
       if (request.method === "GET" && parts.length === 2) {
         return await handleGetThread(request, env, threadId);
