@@ -136,10 +136,24 @@ function areCodexHooksEnabled(filePath) {
 }
 
 function handoffStopHookCommand(targetSkillDir) {
+  if (process.platform === "win32") {
+    return windowsCommandQuote(ensureWindowsStopHookWrapper(targetSkillDir));
+  }
   return [
     shellQuote(process.execPath),
     shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
   ].join(" ");
+}
+
+function ensureWindowsStopHookWrapper(targetSkillDir) {
+  const publishStopPath = path.join(targetSkillDir, "scripts", "publish-stop.js");
+  const wrapperPath = path.join(targetSkillDir, "scripts", "run-publish-stop.cmd");
+  writeText(wrapperPath, [
+    "@echo off",
+    `${windowsCommandQuote(process.execPath)} ${windowsCommandQuote(publishStopPath)}`,
+    "",
+  ].join("\r\n"));
+  return wrapperPath;
 }
 
 function hasImessageHandoffStopHook(hooksPath) {
@@ -204,8 +218,11 @@ function isImessageHandoffStopHook(command) {
   }
   const normalized = command.replace(/\\/g, "/");
   return normalized.indexOf("/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/imessage-handoff/scripts/run-publish-stop.cmd") !== -1
     || normalized.indexOf("/.agents/skills/imessage-handoff/scripts/publish-stop.js") !== -1
-    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/publish-stop.js") !== -1;
+    || normalized.indexOf("/.agents/skills/imessage-handoff/scripts/run-publish-stop.cmd") !== -1
+    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/run-publish-stop.cmd") !== -1;
 }
 
 function uninstallStopHook(hooksPath) {
@@ -402,6 +419,10 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
 }
 
+function windowsCommandQuote(value) {
+  return '"' + String(value).replace(/"/g, '""') + '"';
+}
+
 function basenameForTitle(cwd) {
   const parts = String(cwd || "").split("/").filter(Boolean);
   return parts.length ? parts[parts.length - 1] : String(cwd || "Codex thread");
@@ -490,6 +511,7 @@ module.exports = {
   ensureCodexHooksEnabled,
   ensureStateDirs,
   hasImessageHandoffStopHook,
+  handoffStopHookCommand,
   installStopHook,
   isUsableThreadTitle,
   readActiveThreads,

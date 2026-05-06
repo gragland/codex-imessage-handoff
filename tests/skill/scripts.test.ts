@@ -4,9 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import test from "node:test";
 
 const scriptsDir = path.resolve("imessage-handoff/scripts");
+const require = createRequire(import.meta.url);
+const { handoffStopHookCommand } = require("../../imessage-handoff/scripts/common.js");
 
 // These tests execute the installed skill scripts the same way Codex hooks do.
 // Most network calls are routed through a mock file so the tests can verify the
@@ -163,6 +166,7 @@ test("imessage-handoff uninstall removes only the iMessage Handoff Stop hook", (
         {
           hooks: [
             { type: "command", command: "'node' '/tmp/imessage-handoff/scripts/publish-stop.js'", timeout: 1 },
+            { type: "command", command: "\"D:\\CodexData\\skills\\imessage-handoff\\scripts\\run-publish-stop.cmd\"", timeout: 1 },
             { type: "command", command: "'node' '/tmp/other-tool/scripts/publish-stop.js'", timeout: 2 },
             { type: "command", command: "echo keep-stop-hook" },
           ],
@@ -185,7 +189,7 @@ test("imessage-handoff uninstall removes only the iMessage Handoff Stop hook", (
 
   const result = runCli(["uninstall", "--codex-home=" + codexHome]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).hooksRemoved, 1);
+  assert.equal(JSON.parse(result.stdout).hooksRemoved, 2);
 
   const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
   const stopCommands = hooksRoot.hooks.Stop.flatMap((group: { hooks: Array<{ command: string }> }) => group.hooks.map((hook) => hook.command));
@@ -347,6 +351,54 @@ test("configure hook-status accepts an existing iMessage Handoff hook with a dif
   assert.equal(JSON.parse(install.stdout).hookSetupChanged, false);
   const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
   assert.equal(hooksRoot.hooks.Stop[0].hooks[0].command, existingCommand);
+});
+
+test("configure creates a Windows Stop hook wrapper command", () => {
+  const targetSkillDir = mkdtempSync(path.join(os.tmpdir(), "imessage handoff skill-"));
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: "win32" });
+  try {
+    const command = handoffStopHookCommand(targetSkillDir);
+    const wrapperPath = path.join(targetSkillDir, "scripts", "run-publish-stop.cmd");
+    const publishStopPath = path.join(targetSkillDir, "scripts", "publish-stop.js");
+
+    assert.equal(command, `"${wrapperPath}"`);
+    assert.equal(readFileSync(wrapperPath, "utf8"), [
+      "@echo off",
+      `"${process.execPath}" "${publishStopPath}"`,
+      "",
+    ].join("\r\n"));
+  } finally {
+    Object.defineProperty(process, "platform", { value: originalPlatform });
+  }
+});
+
+test("configure hook-status accepts a Windows wrapper Stop hook", async () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
+  const hooksPath = path.join(codexHome, "hooks.json");
+  const existingCommand = "\"D:\\CodexData\\skills\\imessage-handoff\\scripts\\run-publish-stop.cmd\"";
+  writeFileSync(path.join(codexHome, "config.toml"), "[features]\ncodex_hooks = true\n");
+  writeFileSync(hooksPath, JSON.stringify({
+    hooks: {
+      Stop: [{
+        hooks: [{
+          type: "command",
+          command: existingCommand,
+          timeout: 86520,
+          statusMessage: "Waiting for iMessage replies",
+          silent: true,
+        }],
+      }],
+    },
+  }));
+
+  const status = await runScript("configure.js", ["hook-status"], { stateDir, codexHome });
+  assert.equal(status.code, 0, status.stderr);
+  const output = JSON.parse(status.stdout);
+  assert.equal(output.codexHooksEnabled, true);
+  assert.equal(output.stopHookInstalled, true);
+  assert.equal(output.ready, true);
 });
 
 test("publish-stop exits quietly for inactive threads", async () => {
