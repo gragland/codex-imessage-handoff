@@ -55,6 +55,12 @@ threads
 
 `threads` shows active iMessage handoff threads and lets users switch which thread receives iMessage replies.
 
+## Troubleshooting
+
+If messages reach Sendblue but Codex does not continue the thread, check whether Codex is showing `Waiting for iMessage replies` after an assistant response. If not, restart Codex once so it reloads `~/.codex/hooks.json`, then run `$imessage-handoff` again.
+
+On Windows, the installer uses a small `.cmd` wrapper for the Stop hook so quoted Node paths and skill paths work reliably under the shell Codex uses to run hooks.
+
 ## Self-Hosting
 
 See [relay](relay) for Cloudflare deployment instructions.

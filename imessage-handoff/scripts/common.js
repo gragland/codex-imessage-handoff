@@ -136,10 +136,32 @@ function areCodexHooksEnabled(filePath) {
 }
 
 function handoffStopHookCommand(targetSkillDir) {
+  if (process.platform === "win32") {
+    const wrapperPath = ensureWindowsStopHookWrapper(targetSkillDir);
+    return [
+      windowsCmdQuote(wrapperPath),
+      windowsCmdQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
+    ].join(" ");
+  }
   return [
     shellQuote(process.execPath),
     shellQuote(path.join(targetSkillDir, "scripts", "publish-stop.js")),
   ].join(" ");
+}
+
+function ensureWindowsStopHookWrapper(targetSkillDir) {
+  // Codex hooks on Windows can be run through cmd.exe. A tiny wrapper avoids
+  // brittle inline PowerShell syntax and still lets users use Node installed in
+  // paths that need quoting.
+  const wrapperPath = path.join(targetSkillDir, "scripts", "run-publish-stop.cmd");
+  const nodePath = windowsBatchQuote(process.execPath);
+  const publishStopPath = windowsBatchQuote(path.join(targetSkillDir, "scripts", "publish-stop.js"));
+  writeText(wrapperPath, [
+    "@echo off",
+    `${nodePath} ${publishStopPath}`,
+    "",
+  ].join("\r\n"));
+  return wrapperPath;
 }
 
 function hasImessageHandoffStopHook(hooksPath) {
@@ -204,8 +226,11 @@ function isImessageHandoffStopHook(command) {
   }
   const normalized = command.replace(/\\/g, "/");
   return normalized.indexOf("/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/imessage-handoff/scripts/run-publish-stop.cmd") !== -1
     || normalized.indexOf("/.agents/skills/imessage-handoff/scripts/publish-stop.js") !== -1
-    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/publish-stop.js") !== -1;
+    || normalized.indexOf("/.agents/skills/imessage-handoff/scripts/run-publish-stop.cmd") !== -1
+    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/publish-stop.js") !== -1
+    || normalized.indexOf("/.codex/skills/imessage-handoff/scripts/run-publish-stop.cmd") !== -1;
 }
 
 function uninstallStopHook(hooksPath) {
@@ -400,6 +425,14 @@ function writeActiveThreads(active) {
 
 function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
+function windowsCmdQuote(value) {
+  return '"' + String(value).replace(/"/g, '\\"') + '"';
+}
+
+function windowsBatchQuote(value) {
+  return '"' + String(value).replace(/"/g, '""') + '"';
 }
 
 function basenameForTitle(cwd) {

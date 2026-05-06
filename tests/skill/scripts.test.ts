@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -307,6 +307,16 @@ test("configure install-hook installs once and reports ready status", async () =
   assert.equal(installOutput.codexHooksEnabled, true);
   assert.equal(installOutput.stopHookInstalled, true);
   assert.equal(installOutput.ready, true);
+  const hooksRoot = JSON.parse(readFileSync(path.join(codexHome, "hooks.json"), "utf8"));
+  const command = hooksRoot.hooks.Stop[0].hooks[0].command;
+  if (process.platform === "win32") {
+    const wrapperPath = path.join(scriptsDir, "run-publish-stop.cmd");
+    assert.match(command, /run-publish-stop\.cmd/);
+    assert.equal(existsSync(wrapperPath), true);
+    rmSync(wrapperPath, { force: true });
+  } else {
+    assert.match(command, /publish-stop\.js/);
+  }
 
   const secondInstall = await runScript("configure.js", ["install-hook"], { stateDir, codexHome });
   assert.equal(secondInstall.code, 0, secondInstall.stderr);
@@ -347,6 +357,34 @@ test("configure hook-status accepts an existing iMessage Handoff hook with a dif
   assert.equal(JSON.parse(install.stdout).hookSetupChanged, false);
   const hooksRoot = JSON.parse(readFileSync(hooksPath, "utf8"));
   assert.equal(hooksRoot.hooks.Stop[0].hooks[0].command, existingCommand);
+});
+
+test("configure hook-status accepts a Windows wrapper Stop hook", async () => {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-config-"));
+  const codexHome = mkdtempSync(path.join(os.tmpdir(), "imessage-handoff-codex-home-"));
+  const hooksPath = path.join(codexHome, "hooks.json");
+  const existingCommand = "\"C:\\Users\\me\\.codex\\skills\\imessage-handoff\\scripts\\run-publish-stop.cmd\"";
+  writeFileSync(path.join(codexHome, "config.toml"), "[features]\ncodex_hooks = true\n");
+  writeFileSync(hooksPath, JSON.stringify({
+    hooks: {
+      Stop: [{
+        hooks: [{
+          type: "command",
+          command: existingCommand,
+          timeout: 86520,
+          statusMessage: "Waiting for iMessage replies",
+          silent: true,
+        }],
+      }],
+    },
+  }));
+
+  const status = await runScript("configure.js", ["hook-status"], { stateDir, codexHome });
+  assert.equal(status.code, 0, status.stderr);
+  const output = JSON.parse(status.stdout);
+  assert.equal(output.codexHooksEnabled, true);
+  assert.equal(output.stopHookInstalled, true);
+  assert.equal(output.ready, true);
 });
 
 test("publish-stop exits quietly for inactive threads", async () => {
